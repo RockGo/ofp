@@ -36,7 +36,7 @@ static void usage(char *progname);
  /**
   * global OFP init parms
   */
-ofp_init_global_t app_init_params;
+ofp_global_param_t app_init_params;
 
 /**
  * Get rid of path in filename - only for unix-type paths using '/'
@@ -119,9 +119,7 @@ __attribute__((constructor)) static void ofp_netwrap_main_ctor(void)
 	 * By default, cores #1 and beyond will be populated with a OFP
 	 * processing thread each.
 	 */
-	memset(&app_init_params, 0, sizeof(app_init_params));
-
-	app_init_params.linux_core_id = 0;
+	ofp_init_global_param(&app_init_params);
 
 	if (core_count > 1)
 		num_workers--;

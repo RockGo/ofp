@@ -59,7 +59,6 @@ void *default_event_dispatcher(void *arg)
 	odp_event_t ev;
 	odp_packet_t pkt;
 	odp_queue_t in_queue;
-	odp_event_t events[OFP_EVT_RX_BURST_SIZE];
 	int event_idx = 0;
 	int event_cnt = 0;
 	ofp_pkt_processing_func pkt_func = (ofp_pkt_processing_func)arg;
@@ -69,6 +68,8 @@ void *default_event_dispatcher(void *arg)
 		OFP_ERR("ofp_init_local failed");
 		return NULL;
 	}
+
+	odp_event_t events[global_param->evt_rx_burst_size];
 
 	is_running = ofp_get_processing_state();
 	if (is_running == NULL) {
@@ -80,7 +81,7 @@ void *default_event_dispatcher(void *arg)
 	/* PER CORE DISPATCHER */
 	while (*is_running) {
 		event_cnt = odp_schedule_multi(&in_queue, ODP_SCHED_WAIT,
-					 events, OFP_EVT_RX_BURST_SIZE);
+					 events, global_param->evt_rx_burst_size);
 		for (event_idx = 0; event_idx < event_cnt; event_idx++) {
 			ev = events[event_idx];
 
@@ -1037,10 +1038,9 @@ static enum ofp_return_code ofp_ip_output_send(odp_packet_t pkt,
 		return ofp_fragment_pkt(pkt, odata->dev_out, odata->is_local_address);
 	}
 
-#ifndef OFP_PERFORMANCE
 	odata->ip->ip_sum = 0;
 	odata->ip->ip_sum = ofp_cksum_buffer((uint16_t *)odata->ip, odata->ip->ip_hl<<2);
-#endif
+
 	if (odata->is_local_address) {
 		return send_pkt_loop(odata->dev_out, pkt);
 	} else {

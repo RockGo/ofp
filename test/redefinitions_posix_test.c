@@ -57,7 +57,7 @@
 
 int main(void)
 {
-	static ofp_init_global_t oig;
+	static ofp_global_param_t oig;
 	odp_instance_t instance;
 
 	if (odp_init_global(&instance, NULL, NULL)) {
@@ -69,6 +69,7 @@ int main(void)
 		exit(EXIT_FAILURE);
 	}
 
+	ofp_init_global_param(&oig);
 	if (ofp_init_global(instance, &oig)) {
 		OFP_ERR("Error: OFP global init failed.\n");
 		exit(EXIT_FAILURE);

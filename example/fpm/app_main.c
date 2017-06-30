@@ -39,7 +39,7 @@ static int start_performance(odp_instance_t instance, int core_id);
  /**
   * global OFP init parms
   */
-ofp_init_global_t app_init_params;
+ofp_global_param_t app_init_params;
 
 /**
  * Get rid of path in filename - only for unix-type paths using '/'
@@ -160,9 +160,7 @@ int main(int argc, char *argv[])
 	 * By default, cores #1 and beyond will be populated with a OFP
 	 * processing thread each.
 	 */
-	memset(&app_init_params, 0, sizeof(app_init_params));
-
-	app_init_params.linux_core_id = 0;
+	ofp_init_global_param(&app_init_params);
 
 	/*
 	 * Initializes cpumask with CPUs available for worker threads.

@@ -45,6 +45,8 @@
 
 static __thread struct ofp_global_config_mem *shm;
 
+__thread ofp_global_param_t *global_param = NULL;
+
 static void schedule_shutdown(void);
 static void cleanup_pkt_queue(odp_queue_t pkt_queue);
 
@@ -55,6 +57,7 @@ static int ofp_global_config_alloc_shared_memory(void)
 		OFP_ERR("ofp_shared_memory_alloc failed");
 		return -1;
 	}
+	global_param = &shm->global_param;
 	return 0;
 }
 
@@ -77,6 +80,7 @@ static int ofp_global_config_lookup_shared_memory(void)
 		OFP_ERR("ofp_shared_memory_lookup failed");
 		return -1;
 	}
+	global_param = &shm->global_param;
 
 	return 0;
 }
@@ -100,22 +104,23 @@ odp_bool_t *ofp_get_processing_state(void)
 	return &shm->is_running;
 }
 
-void ofp_init_global_param(ofp_init_global_t *params)
+void ofp_init_global_param(ofp_global_param_t *params)
 {
 	memset(params, 0, sizeof(*params));
 	params->sched_group = ODP_SCHED_GROUP_ALL;
+#ifdef SP
+	params->enable_nl_thread = 1;
+#endif /* SP */
+	params->arp.age_interval = ARP_AGE_INTERVAL;
+	params->arp.entry_timeout = ARP_ENTRY_TIMEOUT;
+	params->evt_rx_burst_size = OFP_EVT_RX_BURST_SIZE;
+	params->pcb_tcp_max = OFP_NUM_PCB_TCP_MAX;
+	params->pkt_pool.nb_pkts = SHM_PKT_POOL_NB_PKTS;
+	params->pkt_pool.buffer_size = SHM_PKT_POOL_BUFFER_SIZE;
 }
 
-int ofp_init_pre_global(const char *pool_name_unused,
-			odp_pool_param_t *pool_params_unused,
-			ofp_pkt_hook hooks[], odp_pool_t *pool_unused,
-			int arp_age_interval, int arp_entry_timeout,
-			odp_schedule_group_t sched_group)
+static int ofp_init_pre_global(ofp_global_param_t *params)
 {
-	(void)pool_name_unused;
-	(void)pool_params_unused;
-	(void)pool_unused;
-
 	/* Init shared memories */
 	HANDLE_ERROR(ofp_uma_init_global());
 
@@ -126,6 +131,8 @@ int ofp_init_pre_global(const char *pool_name_unused,
 	shm->nl_thread_is_running = 0;
 #endif /* SP */
 	shm->cli_thread_is_running = 0;
+
+	*global_param = *params;
 
 	ofp_register_sysctls();
 
@@ -141,11 +148,12 @@ int ofp_init_pre_global(const char *pool_name_unused,
 			OFP_TIMER_MIN_US,
 			OFP_TIMER_MAX_US,
 			OFP_TIMER_TMO_COUNT,
-			sched_group));
+			params->sched_group));
 
-	HANDLE_ERROR(ofp_hook_init_global(hooks));
+	HANDLE_ERROR(ofp_hook_init_global(params->pkt_hook));
 
-	HANDLE_ERROR(ofp_arp_init_global(arp_age_interval, arp_entry_timeout));
+	HANDLE_ERROR(ofp_arp_init_global(params->arp.age_interval,
+			params->arp.entry_timeout));
 
 	HANDLE_ERROR(ofp_route_init_global());
 
@@ -156,10 +164,11 @@ int ofp_init_pre_global(const char *pool_name_unused,
 	HANDLE_ERROR(ofp_vxlan_init_global());
 
 	odp_pool_param_t pool_params;
+	odp_pool_param_init(&pool_params);
 	/* Define pkt.seg_len so that l2/l3/l4 offset fits in first segment */
-	pool_params.pkt.seg_len    = SHM_PKT_POOL_BUFFER_SIZE;
-	pool_params.pkt.len        = SHM_PKT_POOL_BUFFER_SIZE;
-	pool_params.pkt.num        = SHM_PKT_POOL_NB_PKTS;
+	pool_params.pkt.seg_len    = global_param->pkt_pool.buffer_size;
+	pool_params.pkt.len        = global_param->pkt_pool.buffer_size;
+	pool_params.pkt.num        = params->pkt_pool.nb_pkts;
 	pool_params.pkt.uarea_size = SHM_PKT_POOL_USER_AREA_SIZE;
 	pool_params.type           = ODP_POOL_PACKET;
 
@@ -180,21 +189,15 @@ odp_pool_t ofp_packet_pool;
 odp_cpumask_t cpumask;
 int ofp_init_global_called = 0;
 
-int ofp_init_global(odp_instance_t instance, ofp_init_global_t *params)
+int ofp_init_global(odp_instance_t instance, ofp_global_param_t *params)
 {
 	int i;
 	odp_pktio_param_t pktio_param;
 	odp_pktin_queue_param_t pktin_param;
-#ifdef SP
-	odph_linux_thr_params_t thr_params;
-#endif /* SP */
 
 	ofp_init_global_called = 1;
 
-	HANDLE_ERROR(ofp_init_pre_global(NULL, NULL,
-					 params->pkt_hook, NULL,
-					 ARP_AGE_INTERVAL, ARP_ENTRY_TIMEOUT,
-					 params->sched_group));
+	HANDLE_ERROR(ofp_init_pre_global(params));
 
 	/* cpu mask for slow path threads */
 	odp_cpumask_zero(&cpumask);
@@ -218,19 +221,20 @@ int ofp_init_global(odp_instance_t instance, ofp_init_global_t *params)
 			&pktio_param, &pktin_param, NULL));
 
 #ifdef SP
-	/* Start Netlink server process */
-	thr_params.start = START_NL_SERVER;
-	thr_params.arg = NULL;
-	thr_params.thr_type = ODP_THREAD_CONTROL;
-	thr_params.instance = instance;
-	if (!odph_linux_pthread_create(&shm->nl_thread,
-				  &cpumask,
-				  &thr_params)) {
+	if (params->enable_nl_thread) {
+		odph_linux_thr_params_t thr_params;
 
-		OFP_ERR("Failed to start Netlink thread.");
-		return -1;
+		/* Start Netlink server process */
+		thr_params.start = START_NL_SERVER;
+		thr_params.arg = NULL;
+		thr_params.thr_type = ODP_THREAD_CONTROL;
+		thr_params.instance = instance;
+		if (!odph_linux_pthread_create(&shm->nl_thread, &cpumask, &thr_params)) {
+			OFP_ERR("Failed to start Netlink thread.");
+			return -1;
+		}
+		shm->nl_thread_is_running = 1;
 	}
-	shm->nl_thread_is_running = 1;
 #endif /* SP */
 
 	odp_schedule_resume();
@@ -246,6 +250,7 @@ int ofp_init_local(void)
 	HANDLE_ERROR(ofp_portconf_lookup_shared_memory());
 	HANDLE_ERROR(ofp_vlan_lookup_shared_memory());
 	HANDLE_ERROR(ofp_route_lookup_shared_memory());
+	HANDLE_ERROR(ofp_vrf_route_lookup_shared_memory());
 	HANDLE_ERROR(ofp_avl_lookup_shared_memory());
 	HANDLE_ERROR(ofp_reassembly_lookup_shared_memory());
 	HANDLE_ERROR(ofp_pcap_lookup_shared_memory());

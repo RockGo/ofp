@@ -3376,6 +3376,7 @@ ofp_tcp_mss_update(struct tcpcb *tp, int offer, int mtuoffer,
 	const size_t min_protoh = sizeof(struct tcpiphdr);
 #endif
 	(void)mtuflags;
+	long mclbytes = global_param->pkt_pool.buffer_size;
 
 	INP_WLOCK_ASSERT(tp->t_inpcb);
 
@@ -3515,13 +3516,14 @@ ofp_tcp_mss_update(struct tcpcb *tp, int offer, int mtuoffer,
 	     (tp->t_flags & TF_RCVD_TSTMP) == TF_RCVD_TSTMP))
 		mss -= OFP_TCPOLEN_TSTAMP_APPA;
 
-#if	(MCLBYTES & (MCLBYTES - 1)) == 0
-	if (mss > MCLBYTES)
-		mss &= ~(MCLBYTES-1);
-#else
-	if (mss > MCLBYTES)
-		mss = mss / MCLBYTES * MCLBYTES;
-#endif
+	if ((mclbytes & (mclbytes - 1)) == 0) {
+		if (mss > mclbytes)
+			mss &= ~(mclbytes-1);
+	}
+	else
+		if (mss > mclbytes)
+			mss = mss / mclbytes * mclbytes;
+
 	tp->t_maxseg = mss;
 }
 

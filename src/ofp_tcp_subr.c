@@ -40,6 +40,7 @@
 
 #include "odp.h"
 
+#include "ofpi_init.h"
 #include "ofpi_sysctl.h"
 #include "ofpi_socketvar.h"
 #include "ofpi_sockstate.h"
@@ -288,7 +289,7 @@ ofp_tcp_init(void)
 	 * These have to be type stable for the benefit of the timers.
 	 */
 	V_tcpcb_zone = uma_zcreate(
-		"tcpcb", OFP_NUM_PCB_TCP_MAX, sizeof(struct tcpcb_mem),
+		"tcpcb", global_param->pcb_tcp_max, sizeof(struct tcpcb_mem),
 		NULL, NULL, NULL, NULL, UMA_ALIGN_PTR, UMA_ZONE_NOFREE);
 	uma_zone_set_max(V_tcpcb_zone, maxsockets);
 
@@ -327,7 +328,7 @@ ofp_tcp_init(void)
 #endif /* INET6 */
 	if (ofp_max_protohdr < TCP_MINPROTOHDR)
 		ofp_max_protohdr = TCP_MINPROTOHDR;
-	if (ofp_max_linkhdr + TCP_MINPROTOHDR > SHM_PKT_POOL_BUFFER_SIZE)
+	if (ofp_max_linkhdr + TCP_MINPROTOHDR > global_param->pkt_pool.buffer_size)
 		panic("ofp_tcp_init");
 #undef TCP_MINPROTOHDR
 

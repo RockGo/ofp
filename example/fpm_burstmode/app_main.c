@@ -37,7 +37,7 @@ static void usage(char *progname);
 static int validate_cores_settings(int req_core_start, int req_core_count,
 	int *core_start, int *core_count);
 
-ofp_init_global_t app_init_params; /**< global OFP init parms */
+ofp_global_param_t app_init_params; /**< global OFP init parms */
 
 /** Get rid of path in filename - only for unix-type paths using '/' */
 #define NO_PATH(file_name) (strrchr((file_name), '/') ? \
@@ -261,7 +261,8 @@ int main(int argc, char *argv[])
 		linux_sp_core, first_worker, num_workers);
 
 	/* Initialize OFP*/
-	memset(&app_init_params, 0, sizeof(app_init_params));
+	ofp_init_global_param(&app_init_params);
+
 	app_init_params.linux_core_id = linux_sp_core;
 
 	if (ofp_init_global(instance, &app_init_params)) {

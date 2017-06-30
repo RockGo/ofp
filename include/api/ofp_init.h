@@ -34,36 +34,91 @@
  *
  * @see ofp_init_global_param()
  */
-typedef struct ofp_init_global_t {
-	/** Count of interfaces to be initialized. The default value is 0. */
+typedef struct ofp_global_param_t {
+	/**
+	 * Count of interfaces to be initialized. The default value is
+	 * 0.
+	 */
 	uint16_t if_count;
 
-	/** CPU core to which internal OFP control threads are pinned.
-	 *  The default value is 0. */
+	/**
+	 * CPU core to which internal OFP control threads are pinned.
+	 * The default value is 0.
+	 */
 	uint16_t linux_core_id;
 
-	/** Names of the interfaces to be initialized. The naming convention
-	 *  depends on the operating system and the ODP implementation.
-	 *  Must point to an array of at least if_count zero terminated
-	 *  strings. */
+	/**
+	 * Names of the interfaces to be initialized. The naming
+	 * convention depends on the operating system and the ODP
+	 * implementation. Must point to an array of at least if_count
+	 * zero terminated strings.
+	 */
 	char **if_names;
 
-	/** ODP event scheduling group for all scheduled event queues
-	 *  (pktio queues, timer queues and other queues) created in OFP
-	 *  initialization. The default value is ODP_SCHED_GROUP_ALL. */
+	/**
+	 * ODP event scheduling group for all scheduled event queues
+	 * (pktio queues, timer queues and other queues) created in
+	 * OFP initialization. The default value is
+	 * ODP_SCHED_GROUP_ALL.
+	 */
 	odp_schedule_group_t sched_group;
 
-	/** Packet processing hooks. @see ofp_hook.h
-	 *  The default value is NULL for every hook. */
+	/**
+	 * Packet processing hooks. The default value is NULL for
+	 * every hook.
+	 *
+	 * @see ofp_hook.h
+	 */
 	ofp_pkt_hook pkt_hook[OFP_HOOK_MAX];
 
-	/** Use direct input mode for all interfaces if set. Otherwise use
-	 *  scheduled input mode. Default value is 0 (i.e. scheduled mode). */
+	/**
+	 * Use direct input mode for all interfaces if set. Otherwise
+	 * use scheduled input mode. Default value is 0
+	 * (i.e. scheduled mode).
+	 */
 	uint8_t burst_recv_mode;
-} ofp_init_global_t;
+
+	/**
+	 * Create netlink listener thread. If slow path is enabled,
+	 * then default is TRUE, otherwise default is FALSE.
+	 */
+	odp_bool_t enable_nl_thread;
+
+	/**
+	 * Global ARP parameters.
+	 */
+	struct arp_s {
+		/** Aging timer interval in seconds. Default is ARP_AGE_INTERVAL. */
+		int age_interval;
+		/** Entry timeout in seconds. Default is ARP_ENTRY_TIMEOUT. */
+		int entry_timeout;
+	} arp;
+
+	/**
+	 * Maximum number of events received at once. Default is
+	 * OFP_EVT_RX_BURST_SIZE.
+	 */
+	int evt_rx_burst_size;
+
+	/** Maximum number of TCP PCBs.
+	 * Default value is OFP_NUM_PCB_TCP_MAX
+	 */
+	int pcb_tcp_max;
+
+	struct pkt_pool_s {
+		/** Packet pool size; Default value is SHM_PKT_POOL_NB_PKTS */
+		int nb_pkts;
+
+		/**
+		 * Packet pool buffer size;
+		 * Default value is SHM_PKT_POOL_BUFFER_SIZE
+		 */
+		unsigned long buffer_size;
+	} pkt_pool;
+} ofp_global_param_t;
 
 /**
- * Initialize ofp_init_global_t to its default values.
+ * Initialize ofp_global_param_t to its default values.
  *
  * This function should be called to initialize the supplied parameter
  * structure to default values before setting application specific values
@@ -77,7 +132,7 @@ typedef struct ofp_init_global_t {
  *
  * @see ofp_init_global()
  */
-void ofp_init_global_param(ofp_init_global_t *params);
+void ofp_init_global_param(ofp_global_param_t *params);
 
 /**
  * OFP global initialization
@@ -92,7 +147,7 @@ void ofp_init_global_param(ofp_init_global_t *params);
  *
  * @see ofp_init_local() which is required per thread before use.
  */
-int ofp_init_global(odp_instance_t instance, ofp_init_global_t *params);
+int ofp_init_global(odp_instance_t instance, ofp_global_param_t *params);
 
 /**
  * Thread local OFP initialization

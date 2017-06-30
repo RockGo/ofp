@@ -122,7 +122,7 @@ static args_t *gbl_args;
 static int exit_threads;
 
 /** Global OFP init parms */
-ofp_init_global_t app_init_params;
+ofp_global_param_t app_init_params;
 
 /** Get rid of path in filename - only for unix-type paths using '/' */
 #define NO_PATH(file_name) (strrchr((file_name), '/') ? \
@@ -1038,8 +1038,7 @@ int main(int argc, char *argv[])
 	printf("Worker threads:  %i\n", num_workers);
 	printf("First worker:    %i\n\n", next_worker);
 
-	memset(&app_init_params, 0, sizeof(app_init_params));
-	app_init_params.linux_core_id = 0;
+	ofp_init_global_param(&app_init_params);
 
 	if (ofp_init_global(instance, &app_init_params)) {
 		OFP_ERR("Error: OFP global init failed\n");
