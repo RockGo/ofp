@@ -8,7 +8,8 @@
 #define __OFP_H__
 
 #include <odp.h>
-#include <odp/helper/linux.h>
+#include <odp/helper/threads.h>
+#include <odp/helper/linux/pthread.h>
 
 /**
  * @file

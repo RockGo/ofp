@@ -8,7 +8,7 @@
 #define __OFPI_INIT_H__
 
 #include "api/ofp_init.h"
-#include <odp/helper/linux.h>
+#include <odp/helper/threads.h>
 
 #define SHM_NAME_GLOBAL_CONFIG "OfpGlobalConfigShMem"
 

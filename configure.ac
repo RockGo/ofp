@@ -191,7 +191,7 @@ AC_SUBST([ODP_CFLAGS])
 AC_SUBST([ODP_LIBS])
 
 PKG_CHECK_MODULES([ODPHELPER], [libodphelper], [],
-				  [ODPHELPER_LIBS="-lodphelper-linux"])
+				  [ODPHELPER_LIBS="-lodphelper"])
 AC_SUBST([ODPHELPER_CFLAGS])
 AC_SUBST([ODPHELPER_LIBS])
 

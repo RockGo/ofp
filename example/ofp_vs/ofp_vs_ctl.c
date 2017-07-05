@@ -3068,7 +3068,7 @@ void ofp_vs_ctl_thread_start(odp_instance_t instance, int core_id)
 }
 
 
-int ofp_vs_ctl_init(odp_instance_t instance, ofp_init_global_t *app_init_params)
+int ofp_vs_ctl_init(odp_instance_t instance, ofp_global_param_t *app_init_params)
 {
 	int ret;
 	int cpu;

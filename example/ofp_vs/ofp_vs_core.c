@@ -452,7 +452,7 @@ enum ofp_return_code ofp_vs_out(odp_packet_t pkt, void *arg)
 	return handle_response(af, skb, pp, cp, iph.len);
 }
 
-int ofp_vs_init(odp_instance_t instance, ofp_init_global_t *app_init_params)
+int ofp_vs_init(odp_instance_t instance, ofp_global_param_t *app_init_params)
 {
 	int ret;
 	

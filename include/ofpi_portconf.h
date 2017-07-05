@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 #include "odp.h"
-#include "odp/helper/linux.h"
+#include "odp/helper/threads.h"
 
 #include "api/ofp_portconf.h"
 #include "api/ofp_socket.h"
