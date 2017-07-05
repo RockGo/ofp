@@ -526,6 +526,10 @@ static int tcp_opt_add_toa(struct ip_vs_conn *cp,
 	__u8 *p, *q;
 
 
+    if (sysctl_ip_vs_toa_entry == 0)
+        return 0;
+
+
     iph = ip_hdr(skb);
 	th = tcp_hdr(iph);
 
@@ -563,7 +567,7 @@ static int tcp_opt_add_toa(struct ip_vs_conn *cp,
 	*tcph = th = tcp_hdr(iph);
 
 	/* ptr to old opts */
-	p = (__u8 *)iph + iph->tot_len;
+	p = (__u8 *)iph + ntohs(iph->tot_len);
 	q = (__u8 *)p + sizeof(struct ip_vs_tcpo_addr);
 
 	/* move data down, offset is sizeof(struct ip_vs_tcpo_addr) */
