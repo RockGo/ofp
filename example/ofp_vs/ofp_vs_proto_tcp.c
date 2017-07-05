@@ -383,7 +383,7 @@ tcp_fnat_out_handler(struct rte_mbuf *skb,
 
 	/* do csum later */
 	tcph->check = 0;
-	if (sysctl_ip_vs_csum_offload) {
+	if (sysctl_ip_vs_tcp_csum_offload) {
 		skb->ol_flags |= PKT_TX_TCP_CKSUM;
 		tcph->check = rte_ipv4_phdr_cksum((struct ipv4_hdr *)iph,
 					skb->ol_flags);
@@ -652,7 +652,7 @@ tcp_fnat_in_handler(struct rte_mbuf *skb,
 	tcph->dest = cp->dport;
 
 	tcph->check = 0;
-	if (sysctl_ip_vs_csum_offload) {
+	if (sysctl_ip_vs_tcp_csum_offload) {
 		skb->ol_flags |= PKT_TX_TCP_CKSUM;
 		tcph->check = rte_ipv4_phdr_cksum((struct ipv4_hdr *)iph,
 						skb->ol_flags);	
@@ -681,7 +681,7 @@ tcp_dnat_handler(struct rte_mbuf *skb,
 	/*
 	 *      Adjust TCP checksums
 	 */
-	if (sysctl_ip_vs_csum_offload) {
+	if (sysctl_ip_vs_tcp_csum_offload) {
 		skb->ol_flags |= PKT_TX_TCP_CKSUM;
 		tcph->check = rte_ipv4_phdr_cksum((struct ipv4_hdr *)iph,
 						skb->ol_flags);	
@@ -713,7 +713,7 @@ tcp_snat_handler(struct rte_mbuf *skb,
 	}
 	*/
 
-	if (sysctl_ip_vs_csum_offload) {
+	if (sysctl_ip_vs_tcp_csum_offload) {
 		skb->ol_flags |= PKT_TX_TCP_CKSUM;
 		tcph->check = rte_ipv4_phdr_cksum((struct ipv4_hdr *)iph,
 						skb->ol_flags);	

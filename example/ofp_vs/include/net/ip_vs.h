@@ -1017,6 +1017,7 @@ extern int sysctl_ip_vs_conn_expire_tcp_rst;
 extern int sysctl_ip_vs_fast_xmit;
 extern int sysctl_ip_vs_fast_xmit_inside;
 extern int sysctl_ip_vs_csum_offload;
+extern int sysctl_ip_vs_tcp_csum_offload;
 extern int sysctl_ip_vs_reserve_core;
 extern uint32_t sysctl_ip_vs_conn_max_num;
 
