@@ -1564,6 +1564,9 @@ static void ip_vs_conn_max_init(void)
 	uint32_t conn_tab_limit;
 	uint64_t physmem_size;
 
+        if (sysctl_ip_vs_conn_max_num > 0)
+            goto out;
+
 	physmem_size = rte_eal_get_physmem_size();
 	conn_size = sizeof(struct ip_vs_conn) +
 			2 * sizeof(struct ip_vs_conn_idx);
@@ -1572,7 +1575,7 @@ static void ip_vs_conn_max_init(void)
 	pr_info("conn size:%d, phymem size: %lu\n", conn_size, physmem_size);
 
 	/* 1/4 memory for ip_vs_conn */
-	sysctl_ip_vs_conn_max_num = (physmem_size >> 2) / conn_size;
+	sysctl_ip_vs_conn_max_num = (physmem_size >> 1) / conn_size;
 
 	/* the average length of hash chain must be less than 4 */
 	conn_tab_limit = (IP_VS_CONN_TAB_SIZE << 2) * ofp_vs_worker_count();
@@ -1580,6 +1583,8 @@ static void ip_vs_conn_max_init(void)
 	if ( sysctl_ip_vs_conn_max_num > conn_tab_limit )
 		sysctl_ip_vs_conn_max_num = conn_tab_limit;
 
+
+out:
 	pr_info("maximum number of ip_vs_conn: %d\n",
 				sysctl_ip_vs_conn_max_num);
 }

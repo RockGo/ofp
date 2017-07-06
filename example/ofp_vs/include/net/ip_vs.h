@@ -343,10 +343,10 @@ struct ip_vs_conn_idx {
 
 	u16 af;			/* address family */
 	__u16 protocol;		/* Which protocol (TCP/UDP) */
-	union nf_inet_addr s_addr;	/* source address */
-	union nf_inet_addr d_addr;	/* destination address */
 	__be16 s_port;		/* source port */
 	__be16 d_port;		/* destination port */
+	union nf_inet_addr s_addr;	/* source address */
+	union nf_inet_addr d_addr;	/* destination address */
 
 	struct ip_vs_conn *cp;	/* point to connection */
 	volatile __u16 flags;	/* status flags */
@@ -435,13 +435,6 @@ struct ip_vs_conn {
 	__u32 rs_ack_seq;	/* ack seq of the last ack packet from rs */
 
 	/* L2 direct response xmit */
-	struct net_device	*indev;
-	unsigned char		src_hwaddr[ETH_ALEN];
-	unsigned char		dst_hwaddr[ETH_ALEN];
-	struct net_device	*dev_inside;
-	unsigned char		src_hwaddr_inside[ETH_ALEN];
-	unsigned char		dst_hwaddr_inside[ETH_ALEN];
-
 	int est_timeout;	/* Now, we decide that every VS
 				 * should have its private
 				 * establish state timeout for user requirement.
