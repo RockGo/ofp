@@ -21,50 +21,45 @@
 static inline void
 ipv4_cksum(struct iphdr *iphdr, struct rte_mbuf *skb)
 {
-	//struct ether_hdr *eth_hdr = rte_pktmbuf_mtod(skb, struct ether_hdr *);
-	//uint16_t ethertype;
-
-	iphdr->check = 0;
-	if (sysctl_ip_vs_csum_offload) {
-		/* Use hardware csum offload */
+        iphdr->check = 0;
+        if (sysctl_ip_vs_csum_offload) {
+                /* Use hardware csum offload */
 #ifdef OFP_PERFORMANCE
-		skb->ol_flags |= PKT_TX_IP_CKSUM;
+                skb->ol_flags |= PKT_TX_IP_CKSUM;
 #endif
-		//skb->l3_len = ip_hdrlen(iphdr);
-		//skb->l2_len = sizeof(struct ether_hdr);
-		//ethertype = rte_be_to_cpu_16(eth_hdr->ether_type);
-
-		//if (ethertype == ETHER_TYPE_VLAN) {
-		//	skb->l2_len  += sizeof(struct vlan_hdr);
-		//}
-	} else {
+        } else {
 #ifdef OFP_PERFORMANCE
-		iphdr->check = ofp_vs_ipv4_cksum(iphdr);
+                iphdr->check = ofp_vs_ipv4_cksum(iphdr);
 #endif
-	}
+        }
 }
 
-/* just for fullnat mode */
-static int
-ip_vs_fast_xmit(struct rte_mbuf *skb, struct ip_vs_protocol *pp,
-		struct ip_vs_conn *cp)
+static struct ofp_nh_entry *ip_vs_get_out_rt(struct rte_mbuf *skb,
+                         __be32 daddr)
 {
-	(void)skb;
-	(void)pp;
-	(void)cp;
-	return -1;
+        uint32_t flags;
+        uint32_t vrf;
+        struct ofp_ifnet *send_ctx = odp_packet_user_ptr((odp_packet_t)skb);
+        struct ofp_nh_entry *nh = NULL;
+
+        vrf = send_ctx ? send_ctx->vrf : 0;
+        nh = ofp_get_next_hop(vrf, daddr, &flags);
+        if (nh) {
+            if (!nh->gw)
+                nh->gw = daddr;
+            IP_VS_DBG(12, "%s dst:"
+                  PRINT_IP_FORMAT" gw:"
+                  PRINT_IP_FORMAT
+                  " port:%d vlan:%d\n",
+                  __func__,
+                  PRINT_NIP(daddr),
+                  PRINT_NIP(nh->gw),
+                  nh->port,
+                  nh->vlan);
+        }
+        return nh;
 }
 
-static int
-ip_vs_fast_response_xmit(struct rte_mbuf *skb,
-			 struct ip_vs_protocol *pp,
-			 struct ip_vs_conn *cp)
-{
-	(void)skb;
-	(void)pp;
-	(void)cp;
-	return -1;
-}
 
 /*
  *      FULLNAT transmitter (only for outside-to-inside fullnat forwarding)
@@ -72,40 +67,41 @@ ip_vs_fast_response_xmit(struct rte_mbuf *skb,
  */
 int
 ip_vs_fnat_xmit(struct rte_mbuf *skb, struct ip_vs_conn *cp,
-		struct ip_vs_protocol *pp)
+                struct ip_vs_protocol *pp)
 {
-	struct iphdr *iphdr = ip_hdr(skb);
-	
-	EnterFunction(10);
-	/* check if it is a connection of no-client-port */
-	if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT)) {
-		__be16 *p;
-		p = (__be16 *)((unsigned char *)iphdr + iphdr->ihl * 4);
-		if (p == NULL)
-			goto tx_error;
-		ip_vs_conn_fill_cport(cp, *p);
-		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
-	}
+        int ret;
+        struct iphdr *iphdr = ip_hdr(skb);
+        
+        EnterFunction(10);
+        /* check if it is a connection of no-client-port */
+        if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT)) {
+                __be16 *p;
+                p = (__be16 *)((unsigned char *)iphdr + iphdr->ihl * 4);
+                if (p == NULL)
+                        goto tx_error;
+                ip_vs_conn_fill_cport(cp, *p);
+                IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
+        }
 
-	//ip_vs_save_xmit_outside_info(skb, cp);
+        iphdr->saddr = cp->laddr.ip;
+        iphdr->daddr = cp->daddr.ip;
 
-	if (sysctl_ip_vs_fast_xmit_inside && !ip_vs_fast_xmit(skb, pp, cp))
-		return NF_STOLEN;
+        ipv4_cksum(iphdr, skb);
 
-	iphdr->saddr = cp->laddr.ip;
-	iphdr->daddr = cp->daddr.ip;
+        if (pp->fnat_in_handler && !pp->fnat_in_handler(skb, pp, cp))
+                goto tx_error;
 
-	ipv4_cksum(iphdr, skb);
-
-	if (pp->fnat_in_handler && !pp->fnat_in_handler(skb, pp, cp))
-		goto tx_error;
-	
-	LeaveFunction(10);
-	return ofp_ip_output((odp_packet_t)skb, NULL);
-		
+        if (!cp->in_nh && sysctl_ip_vs_fast_xmit_inside) {
+            cp->in_nh = ip_vs_get_out_rt(skb, iphdr->daddr);
+        }
+        
+        ret = ofp_ip_output((odp_packet_t)skb, cp->in_nh);
+        LeaveFunction(10);
+        return ret;
+                
 tx_error:
-	LeaveFunction(10);
-	return NF_DROP;
+        LeaveFunction(10);
+        return NF_DROP;
 }
 
 /* Response transmit to client
@@ -113,71 +109,69 @@ tx_error:
  */
 int
 ip_vs_fnat_response_xmit(struct rte_mbuf *skb, struct ip_vs_protocol *pp,
-			 struct ip_vs_conn *cp, int ihl)
+                         struct ip_vs_conn *cp, int ihl)
 {
-	struct iphdr *iphdr = ip_hdr(skb);
-	(void)ihl;
+        int ret;
+        struct iphdr *iphdr = ip_hdr(skb);
+        (void)ihl;
 
-	EnterFunction(10);
+        EnterFunction(10);
 
-	//ip_vs_save_xmit_inside_info(skb, cp);
+        iphdr->saddr = cp->vaddr.ip;
+        iphdr->daddr = cp->caddr.ip;
+        ipv4_cksum(iphdr, skb);
 
-	if (sysctl_ip_vs_fast_xmit &&
-	    !ip_vs_fast_response_xmit(skb, pp, cp))
-		return NF_STOLEN;
-		
-	iphdr->saddr = cp->vaddr.ip;
-	iphdr->daddr = cp->caddr.ip;
-	ipv4_cksum(iphdr, skb);
+        if (pp->fnat_out_handler && !pp->fnat_out_handler(skb, pp, cp))
+                        goto err;
 
-	if (pp->fnat_out_handler && !pp->fnat_out_handler(skb, pp, cp))
-			goto err;
-	
-	LeaveFunction(10);
-	return ofp_ip_output((odp_packet_t)skb, NULL);
+        if (!cp->out_nh && sysctl_ip_vs_fast_xmit) {
+            cp->out_nh = ip_vs_get_out_rt(skb, iphdr->daddr);
+        }
+        
+        ret = ofp_ip_output((odp_packet_t)skb, cp->out_nh);
+        LeaveFunction(10);
+        return ret;
 
 err:
-	LeaveFunction(10);
-	return NF_DROP;
+        LeaveFunction(10);
+        return NF_DROP;
 }
 
 int
 ip_vs_nat_xmit(struct rte_mbuf *skb, struct ip_vs_conn *cp,
-	       struct ip_vs_protocol *pp)
+               struct ip_vs_protocol *pp)
 {
-	struct iphdr *iphdr = ip_hdr(skb);
+        struct iphdr *iphdr = ip_hdr(skb);
 
-	EnterFunction(10);
+        EnterFunction(10);
 
-	/* check if it is a connection of no-client-port */
-	if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT)) {
-		__be16 *p;
-		p = (__be16 *)((unsigned char *)iphdr + iphdr->ihl * 4);
-		if (p == NULL)
-			goto tx_error;
-		ip_vs_conn_fill_cport(cp, *p);
-		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
-	}
+        /* check if it is a connection of no-client-port */
+        if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT)) {
+                __be16 *p;
+                p = (__be16 *)((unsigned char *)iphdr + iphdr->ihl * 4);
+                if (p == NULL)
+                        goto tx_error;
+                ip_vs_conn_fill_cport(cp, *p);
+                IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
+        }
 
-	
-	iphdr->daddr = cp->daddr.ip;
+        
+        iphdr->daddr = cp->daddr.ip;
 
-	ipv4_cksum(iphdr, skb);
+        ipv4_cksum(iphdr, skb);
 
-	/* mangle the packet */
-	if (pp->dnat_handler && !pp->dnat_handler(skb, pp, cp))
-		goto tx_error;
+        /* mangle the packet */
+        if (pp->dnat_handler && !pp->dnat_handler(skb, pp, cp))
+                goto tx_error;
 
-	IP_VS_DBG_PKT(10, pp, skb, 0, "After DNAT");
+        IP_VS_DBG_PKT(10, pp, skb, 0, "After DNAT");
 
-
-	LeaveFunction(10);
-	
-	return ofp_ip_output((odp_packet_t)skb, NULL);
+        LeaveFunction(10);
+        return ofp_ip_output((odp_packet_t)skb, NULL);
 
 tx_error:
-	LeaveFunction(10);
-	return NF_DROP;
+        LeaveFunction(10);
+        return NF_DROP;
 }
 
 /* Response transmit to client
@@ -185,26 +179,26 @@ tx_error:
  */
 int
 ip_vs_normal_response_xmit(struct rte_mbuf *skb, struct ip_vs_protocol *pp,
-			   struct ip_vs_conn *cp, int ihl)
+                           struct ip_vs_conn *cp, int ihl)
 {
-	struct iphdr *iphdr = ip_hdr(skb);
-	(void)ihl;
+        struct iphdr *iphdr = ip_hdr(skb);
+        (void)ihl;
 
-	EnterFunction(10);
+        EnterFunction(10);
 
-	iphdr->saddr = cp->vaddr.ip;
+        iphdr->saddr = cp->vaddr.ip;
 
-	ipv4_cksum(iphdr, skb);
+        ipv4_cksum(iphdr, skb);
 
-	/* mangle the packet */
-	if (pp->snat_handler && !pp->snat_handler(skb, pp, cp))
-		goto drop;
+        /* mangle the packet */
+        if (pp->snat_handler && !pp->snat_handler(skb, pp, cp))
+                goto drop;
 
-	return ofp_ip_output((odp_packet_t)skb, NULL);
+        return ofp_ip_output((odp_packet_t)skb, NULL);
 
 drop:
-	LeaveFunction(10);
-	return NF_DROP;
+        LeaveFunction(10);
+        return NF_DROP;
 }
 
 /*
@@ -213,36 +207,18 @@ drop:
  */
 int
 ip_vs_dr_xmit(struct rte_mbuf *skb, struct ip_vs_conn *cp,
-	      struct ip_vs_protocol *pp)
+              struct ip_vs_protocol *pp)
 {
-	int ret;
-	uint32_t flags;
-	uint32_t vrf;
-	struct ofp_ifnet *send_ctx = odp_packet_user_ptr((odp_packet_t)skb);
-	struct ofp_nh_entry *nh;
-	(void)pp;
+        int ret;
+        (void)pp;
 
-	EnterFunction(10);
+        EnterFunction(10);
 
-	vrf = send_ctx ? send_ctx->vrf : 0;
-	nh = ofp_get_next_hop(vrf, cp->daddr.ip, &flags);
-	if (!nh)
-		goto drop;;
+        if (!cp->in_nh && sysctl_ip_vs_fast_xmit_inside) {
+            cp->in_nh = ip_vs_get_out_rt(skb, cp->daddr.ip);
+        }
 
-	if (!nh->gw)
-		nh->gw = cp->daddr.ip;
-
-	ret = ofp_ip_output((odp_packet_t)skb, nh);
-	IP_VS_DBG(12, "ofp_ip_output dst:"
-			  PRINT_IP_FORMAT" gw:"
-			  PRINT_IP_FORMAT
-			  " port:%d vlan:%d return %d\n",
-		      PRINT_NIP(cp->dest->addr.ip),
-		      PRINT_NIP(nh->gw), nh->port, nh->vlan, ret);
-	LeaveFunction(10);
-	return ret;	
-
-drop:
-	LeaveFunction(10);
-	return NF_DROP;
+        ret = ofp_ip_output((odp_packet_t)skb, cp->in_nh);
+        LeaveFunction(10);
+        return ret;        
 }

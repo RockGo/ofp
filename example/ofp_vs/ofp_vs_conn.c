@@ -1213,6 +1213,8 @@ struct ip_vs_conn *ip_vs_conn_new(int af, int proto,
 	spin_lock_init(&cp->lock);
 	cp->in_idx = ci_idx;
 	cp->out_idx = co_idx;
+	cp->in_nh = NULL;
+	cp->out_nh = NULL;
 
 	/*
 	 * Set the entry is referenced by the current thread before hashing

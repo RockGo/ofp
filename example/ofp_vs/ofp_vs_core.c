@@ -258,7 +258,7 @@ enum ofp_return_code ofp_vs_in(odp_packet_t pkt, void *arg)
 	(void)arg;
 
 	/* Only support IPV4 */
-    	if(!RTE_ETH_IS_IPV4_HDR(skb->packet_type))
+	if(!RTE_ETH_IS_IPV4_HDR(skb->packet_type))
 		return NF_ACCEPT;
 
 	af = AF_INET;
@@ -396,6 +396,8 @@ ip_vs_snat_out(int af, struct rte_mbuf *skb, struct ip_vs_protocol *pp,
 			return 0;
 		}
 	}
+
+	cp->in_nh = nh;
 
 	IP_VS_DBG_PKT(11, pp, skb, 0, "Forward packet");
 	ip_vs_in_stats(cp, skb);

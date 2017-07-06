@@ -449,6 +449,8 @@ struct ip_vs_conn {
 				 * set this value into conn timer
 				 * when state change to establishment
 				 */
+	struct ofp_nh_entry *in_nh; 
+	struct ofp_nh_entry *out_nh; 
 };
 
 /*

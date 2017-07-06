@@ -149,7 +149,7 @@ int sysctl_ip_vs_fast_xmit = 1;
 /* L2 fast xmit, inside (to RS) */
 int sysctl_ip_vs_fast_xmit_inside = 1;
 /* msg csum offload */
-int sysctl_ip_vs_csum_offload = 1;
+int sysctl_ip_vs_csum_offload = 0;
 
 int sysctl_ip_vs_tcp_csum_offload = 0;
 
