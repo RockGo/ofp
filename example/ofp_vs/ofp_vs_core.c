@@ -1,8 +1,28 @@
 /*
- * Copyright (c) 2016, lvsgate@163.com
- * All rights reserved.
+ * IPVS         An implementation of the IP virtual server support for the
+ *              LINUX operating system.  IPVS is now implemented as a module
+ *              over the Netfilter framework. IPVS can be used to build a
+ *              high-performance and highly available server based on a
+ *              cluster of servers.
  *
- * SPDX-License-Identifier:	BSD-3-Clause
+ * Authors:     Wensong Zhang <wensong@linuxvirtualserver.org>
+ *              Peter Kese <peter.kese@ijs.si>
+ *              Julian Anastasov <ja@ssi.bg>
+ *
+ *              This program is free software; you can redistribute it and/or
+ *              modify it under the terms of the GNU General Public License
+ *              as published by the Free Software Foundation; either version
+ *              2 of the License, or (at your option) any later version.
+ *
+ * The IPVS code for kernel 2.2 was done by Wensong Zhang and Peter Kese,
+ * with changes/fixes from Julian Anastasov, Lars Marowsky-Bree, Horms
+ * and others.
+ *
+ * Changes:
+ *	Paul `Rusty' Russell		properly handle non-linear skbs
+ *	Harald Welte			don't use nfcache
+ *      lvsgate@163.com                 Port to OpenFastpath
+ *
  */
 
 #include <getopt.h>
