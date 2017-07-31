@@ -45,8 +45,6 @@ static struct ofp_nh_entry *ip_vs_get_out_rt(struct rte_mbuf *skb,
         vrf = send_ctx ? send_ctx->vrf : 0;
         nh = ofp_get_next_hop(vrf, daddr, &flags);
         if (nh) {
-            if (!nh->gw)
-                nh->gw = daddr;
             IP_VS_DBG(12, "%s dst:"
                   PRINT_IP_FORMAT" gw:"
                   PRINT_IP_FORMAT
