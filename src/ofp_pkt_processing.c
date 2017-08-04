@@ -50,9 +50,16 @@
 #include "ofpi_reass.h"
 #include "ofpi_if_vxlan.h"
 #include "ofpi_vxlan.h"
+#include "ofpi_gre.h"
+#include "ofpi_ip.h"
 #include "api/ofp_init.h"
 
+static enum ofp_return_code ofp_ip_output_continue(odp_packet_t pkt,
+						   struct ip_out *odata);
+
 extern odp_pool_t ofp_packet_pool;
+
+__thread struct ofp_global_ip_state *ofp_ip_shm;
 
 void *default_event_dispatcher(void *arg)
 {
@@ -128,6 +135,11 @@ void *default_event_dispatcher(void *arg)
 		OFP_ERR("ofp_term_local failed");
 
 	return NULL;
+}
+
+uint32_t ofp_packet_min_user_area(void)
+{
+	return sizeof(struct ofp_packet_user_area);
 }
 
 enum ofp_return_code ofp_eth_vlan_processing(odp_packet_t pkt)
@@ -297,9 +309,11 @@ enum ofp_return_code ofp_ipv4_processing(odp_packet_t pkt)
 			/* Doesn't happen. */
 			break;
 		case VXLAN_PORTS: {
+			struct ofp_packet_user_area *ua;
+
 			/* Look for the correct device. */
-			struct vxlan_user_data *saved = odp_packet_user_area(pkt);
-			dev = ofp_get_ifnet(VXLAN_PORTS, saved->vni);
+			ua = ofp_packet_user_area(pkt);
+			dev = ofp_get_ifnet(VXLAN_PORTS, ua->vxlan.vni);
 			if (!dev)
 				return OFP_PKT_DROP;
 			break;
@@ -414,7 +428,7 @@ enum ofp_return_code ofp_ipv4_processing(odp_packet_t pkt)
 	}
 #endif
 
-	return ofp_ip_output(pkt, nh);
+	return ofp_ip_output_common(pkt, nh, 0);
 }
 
 #ifdef INET6
@@ -658,9 +672,9 @@ static void send_arp_request(struct ofp_ifnet *dev, uint32_t gw)
 	memcpy(arp->eth_dst, e1->ether_dhost, OFP_ETHER_ADDR_LEN);
 	arp->ip_dst = gw;
 
-	pkt = odp_packet_alloc(ofp_packet_pool, size);
+	pkt = ofp_packet_alloc(size);
 	if (pkt == ODP_PACKET_INVALID) {
-		OFP_ERR("odp_packet_alloc falied");
+		OFP_ERR("ofp_packet_alloc failed");
 		return;
 	}
 
@@ -691,6 +705,8 @@ enum ofp_return_code ofp_send_frame(struct ofp_ifnet *dev, odp_packet_t pkt)
 		OFP_ERR("Send frame on GRE port");
 		return OFP_PKT_DROP;
 	}
+
+	ofp_packet_user_area_reset(pkt);
 
 	/* Contsruct ethernet header */
 	eth = odp_packet_l2_ptr(pkt, NULL);
@@ -757,33 +773,21 @@ enum ofp_return_code ofp_send_frame(struct ofp_ifnet *dev, odp_packet_t pkt)
 }
 
 static enum ofp_return_code ofp_fragment_pkt(odp_packet_t pkt,
-			      struct ofp_ifnet *dev_out,
-			      uint8_t is_local_address)
+					     struct ip_out *odata)
 {
 	struct ofp_ip *ip, *ip_new;
-	uint16_t vlan = dev_out->vlan;
 	int tot_len, pl_len, seg_len, pl_pos, flen, hwlen;
 	uint16_t frag, frag_new;
 	uint8_t *payload_new;
 	uint32_t payload_offset;
-	odp_pool_t pkt_pool;
 	odp_packet_t pkt_new;
-	struct ofp_ether_header *eth, *eth_new;
-	struct ofp_ether_vlan_header *eth_vlan, *eth_new_vlan;
 	int ret = OFP_PKT_PROCESSED;
-
-
-	if (!vlan)
-		eth = odp_packet_l2_ptr(pkt, NULL);
-	else
-		eth_vlan = odp_packet_l2_ptr(pkt, NULL);
 
 	ip = (struct ofp_ip *)odp_packet_l3_ptr(pkt, NULL);
 
-	pkt_pool = ofp_packet_pool;
 	tot_len = odp_be_to_cpu_16(ip->ip_len);
 	pl_len = tot_len - (ip->ip_hl<<2);
-	seg_len = (dev_out->if_mtu - sizeof(struct ofp_ip)) & 0xfff8;
+	seg_len = (odata->dev_out->if_mtu - sizeof(struct ofp_ip)) & 0xfff8;
 	pl_pos = 0;
 	frag = odp_be_to_cpu_16(ip->ip_off);
 	payload_offset = odp_packet_l3_offset(pkt) + (ip->ip_hl<<2);
@@ -793,32 +797,19 @@ static enum ofp_return_code ofp_fragment_pkt(odp_packet_t pkt,
 	while (pl_pos < pl_len) {
 		flen = (pl_len - pl_pos) > seg_len ?
 			seg_len : (pl_len - pl_pos);
-		hwlen = flen + sizeof(struct ofp_ip) +
-			(vlan ? sizeof(struct ofp_ether_vlan_header) :
-			 sizeof(struct ofp_ether_header));
+		hwlen = flen + sizeof(struct ofp_ip);
 
-		pkt_new = odp_packet_alloc(pkt_pool, hwlen);
+		pkt_new = ofp_packet_alloc(hwlen);
 		if (pkt_new == ODP_PACKET_INVALID) {
-			OFP_ERR("odp_packet_alloc failed");
+			OFP_ERR("ofp_packet_alloc failed");
 			return OFP_PKT_DROP;
 		}
 		odp_packet_user_ptr_set(pkt_new, odp_packet_user_ptr(pkt));
+		*ofp_packet_user_area(pkt_new) = *ofp_packet_user_area(pkt);
 
 		odp_packet_l2_offset_set(pkt_new, 0);
-		if (vlan) {
-			eth_new_vlan = odp_packet_l2_ptr(pkt_new, NULL);
-			*eth_new_vlan = *eth_vlan;
-			ip_new = (struct ofp_ip *)(eth_new_vlan + 1);
-			odp_packet_l3_offset_set(pkt_new,
-						 OFP_ETHER_HDR_LEN +
-						 OFP_ETHER_VLAN_ENCAP_LEN);
-		} else {
-			eth_new = odp_packet_l2_ptr(pkt_new, NULL);
-			*eth_new = *eth;
-			ip_new = (struct ofp_ip *)(eth_new + 1);
-			odp_packet_l3_offset_set(pkt_new,
-						 OFP_ETHER_HDR_LEN);
-		}
+		odp_packet_l3_offset_set(pkt_new, 0);
+		ip_new = odp_packet_l3_ptr(pkt_new, NULL);
 
 		*ip_new = *ip;
 
@@ -838,15 +829,9 @@ static enum ofp_return_code ofp_fragment_pkt(odp_packet_t pkt,
 			frag_new |= OFP_IP_MF;
 		ip_new->ip_off = odp_cpu_to_be_16(frag_new);
 
-		ip_new->ip_sum = 0;
-		ip_new->ip_sum = ofp_cksum_buffer((uint16_t *)ip_new,
-					       sizeof(*ip_new));
-
-		if (is_local_address)
-			ret  = send_pkt_loop(dev_out, pkt_new);
-		else
-			ret = send_pkt_out(dev_out, pkt_new);
-
+		odata->ip = ip_new;
+		odata->insert_checksum = 1;
+		ret = ofp_ip_output_continue(pkt_new, odata);
 		if (ret == OFP_PKT_DROP) {
 			odp_packet_free(pkt_new);
 			return OFP_PKT_DROP;
@@ -855,81 +840,6 @@ static enum ofp_return_code ofp_fragment_pkt(odp_packet_t pkt,
 
 	odp_packet_free(pkt);
 	return OFP_PKT_PROCESSED;
-}
-
-static enum ofp_return_code ofp_output_ipv4_to_gre(
-	odp_packet_t pkt, struct ofp_ifnet *dev_gre,
-	uint16_t vrfid,	struct ofp_nh_entry **nh_new)
-{
-	struct ofp_ip	*ip;
-	struct ofp_greip *greip;
-	uint32_t flags;
-	uint8_t	l2_size = 0;
-	int32_t	offset;
-
-	*nh_new = ofp_get_next_hop(vrfid, dev_gre->ip_remote, &flags);
-
-	if (*nh_new == NULL)
-		return OFP_PKT_DROP;
-
-	ip = odp_packet_l3_ptr(pkt, NULL);
-
-	/* Remove eth header, prepend gre + ip */
-	if (odp_packet_has_l2(pkt))
-		l2_size = odp_packet_l3_offset(pkt) - odp_packet_l2_offset(pkt);
-
-	offset = sizeof(*greip) - l2_size;
-	if (offset >= 0)
-		greip = odp_packet_push_head(pkt, offset);
-	else
-		greip = odp_packet_pull_head(pkt, -offset);
-
-	odp_packet_has_l2_set(pkt, 0);
-	odp_packet_l3_offset_set(pkt, 0);
-
-	if (!greip)
-		return OFP_PKT_DROP;
-
-	greip->gi_flags = 0;
-	greip->gi_ptype = odp_cpu_to_be_16(OFP_GREPROTO_IP);
-
-	greip->gi_i.ip_hl = 5;
-	greip->gi_i.ip_v = OFP_IPVERSION;
-	greip->gi_i.ip_tos = ip->ip_tos;
-	greip->gi_i.ip_len =
-		odp_cpu_to_be_16(odp_be_to_cpu_16(ip->ip_len) +
-				 sizeof(*greip));
-	greip->gi_i.ip_id = ip->ip_id;
-	greip->gi_i.ip_off = 0;
-	greip->gi_i.ip_ttl = ip->ip_ttl;
-	greip->gi_i.ip_p = OFP_IPPROTO_GRE;
-	greip->gi_i.ip_sum = 0;
-	greip->gi_i.ip_src.s_addr = dev_gre->ip_local;
-	greip->gi_i.ip_dst.s_addr = dev_gre->ip_remote;
-
-	return OFP_PKT_CONTINUE;
-}
-
-static enum ofp_return_code ofp_gre_update_target(odp_packet_t pkt,
-						  struct ip_out *odata)
-{
-	struct ofp_nh_entry *nh_new = NULL;
-
-	if (ofp_output_ipv4_to_gre(pkt, odata->dev_out, odata->vrf,
-				   &nh_new) == OFP_PKT_DROP)
-		return OFP_PKT_DROP;
-
-	odata->nh = nh_new;
-	odata->gw = odata->nh->gw;
-	odata->vlan = odata->nh->vlan;
-	odata->out_port = odata->nh->port;
-	odata->ip = odp_packet_l3_ptr(pkt, NULL);
-
-	odata->dev_out = ofp_get_ifnet(odata->out_port, odata->vlan);
-	if (!odata->dev_out)
-		return OFP_PKT_DROP;
-
-	return OFP_PKT_CONTINUE;
 }
 
 static enum ofp_return_code ofp_ip_output_add_eth(odp_packet_t pkt,
@@ -1026,21 +936,6 @@ static enum ofp_return_code ofp_ip_output_add_eth(odp_packet_t pkt,
 static enum ofp_return_code ofp_ip_output_send(odp_packet_t pkt,
 					       struct ip_out *odata)
 {
-	/* Fragmentation */
-	if (odp_be_to_cpu_16(odata->ip->ip_len) > odata->dev_out->if_mtu) {
-		OFP_DBG("Fragmentation required");
-		if (odp_be_to_cpu_16(odata->ip->ip_off) & OFP_IP_DF) {
-			ofp_icmp_error(pkt, OFP_ICMP_UNREACH,
-					OFP_ICMP_UNREACH_NEEDFRAG,
-					0, odata->dev_out->if_mtu);
-			return OFP_PKT_DROP;
-		}
-		return ofp_fragment_pkt(pkt, odata->dev_out, odata->is_local_address);
-	}
-
-	odata->ip->ip_sum = 0;
-	odata->ip->ip_sum = ofp_cksum_buffer((uint16_t *)odata->ip, odata->ip->ip_hl<<2);
-
 	if (odata->is_local_address) {
 		return send_pkt_loop(odata->dev_out, pkt);
 	} else {
@@ -1085,8 +980,28 @@ static enum ofp_return_code ofp_ip_output_find_route(odp_packet_t pkt,
 	return OFP_PKT_CONTINUE;
 }
 
-enum ofp_return_code ofp_ip_output(odp_packet_t pkt,
-	struct ofp_nh_entry *nh_param)
+enum ofp_return_code ofp_ip_send(odp_packet_t pkt,
+				 struct ofp_nh_entry *nh_param)
+{
+	ofp_packet_user_area_reset(pkt);
+	return ofp_ip_output(pkt, nh_param);
+}
+
+enum ofp_return_code ofp_ip_output_recurse(odp_packet_t pkt,
+					   struct ofp_nh_entry *nh)
+{
+	struct ofp_packet_user_area *ua = ofp_packet_user_area(pkt);
+
+	if (odp_likely(ua->recursion_count++ < OFP_IP_OUTPUT_MAX_RECURSION))
+		return ofp_ip_output(pkt, nh);
+
+	OFP_DBG("Too many nested tunnels. Dropping outbound packet.");
+	return OFP_PKT_DROP;
+}
+
+enum ofp_return_code ofp_ip_output_common(odp_packet_t pkt,
+					  struct ofp_nh_entry *nh_param,
+					  int is_local_out)
 {
 	struct ofp_ifnet *send_ctx = odp_packet_user_ptr(pkt);
 	struct ip_out odata;
@@ -1102,29 +1017,53 @@ enum ofp_return_code ofp_ip_output(odp_packet_t pkt,
 	odata.vrf = send_ctx ? send_ctx->vrf : 0;
 	odata.is_local_address = 0;
 	odata.nh = nh_param;
+	odata.insert_checksum = is_local_out;
 
 	if ((ret = ofp_ip_output_find_route(pkt, &odata)) != OFP_PKT_CONTINUE)
 		return ret;
 
-	switch (odata.out_port) {
-	case GRE_PORTS:
-		if ((ret = ofp_gre_update_target(pkt, &odata)) != OFP_PKT_CONTINUE)
-			return ret;
-		break;
-	case VXLAN_PORTS:
-		if ((ret = ofp_ip_output_add_eth(pkt, &odata)) != OFP_PKT_CONTINUE)
-			return ret;
-		if ((ret = ofp_ip_output_vxlan(pkt, &odata)) != OFP_PKT_CONTINUE)
-			return ret;
-		if ((ret = ofp_ip_output_find_route(pkt, &odata)) != OFP_PKT_CONTINUE)
-			return ret;
-		break;
+	if (is_local_out)
+		ofp_ip_id_assign(odata.ip);
+
+	/* Fragmentation */
+	if (odp_be_to_cpu_16(odata.ip->ip_len) > odata.dev_out->if_mtu) {
+		OFP_DBG("Fragmentation required");
+		if (odp_be_to_cpu_16(odata.ip->ip_off) & OFP_IP_DF) {
+			ofp_icmp_error(pkt, OFP_ICMP_UNREACH,
+				       OFP_ICMP_UNREACH_NEEDFRAG,
+				       0, odata.dev_out->if_mtu);
+			return OFP_PKT_DROP;
+		}
+		return ofp_fragment_pkt(pkt, &odata);
+	}
+	return ofp_ip_output_continue(pkt, &odata);
+}
+
+static enum ofp_return_code ofp_ip_output_continue(odp_packet_t pkt,
+						   struct ip_out *odata)
+{
+	enum ofp_return_code ret;
+
+	if (odata->insert_checksum) {
+		odata->ip->ip_sum = 0;
+		odata->ip->ip_sum = ofp_cksum_buffer((uint16_t *) odata->ip,
+						     odata->ip->ip_hl * 4);
 	}
 
-	if ((ret = ofp_ip_output_add_eth(pkt, &odata)) != OFP_PKT_CONTINUE)
+	switch (odata->out_port) {
+	case GRE_PORTS:
+		return ofp_output_ipv4_to_gre(pkt, odata->dev_out);
+		break;
+	case VXLAN_PORTS:
+		if ((ret = ofp_ip_output_add_eth(pkt, odata)) != OFP_PKT_CONTINUE)
 			return ret;
+		return ofp_ip_output_vxlan(pkt, odata->dev_out);
+	}
 
-	return ofp_ip_output_send(pkt, &odata);
+	if ((ret = ofp_ip_output_add_eth(pkt, odata)) != OFP_PKT_CONTINUE)
+		return ret;
+
+	return ofp_ip_output_send(pkt, odata);
 }
 
 enum ofp_return_code  ofp_ip_output_opt(odp_packet_t pkt, odp_packet_t opt,
@@ -1135,13 +1074,11 @@ enum ofp_return_code  ofp_ip_output_opt(odp_packet_t pkt, odp_packet_t opt,
 	(void)inp;
 	struct ofp_nh_entry nh;
 	struct ofp_ip *ip = (struct ofp_ip *)odp_packet_data(pkt), ip0;
-	static uint16_t ip_newid = 0;
 
 	ip->ip_v = OFP_IPVERSION;
 	ip->ip_hl = sizeof(*ip) >> 2;
 	ip->ip_ttl = 255;
 	ip->ip_off = 0;
-	ip->ip_id = ip_newid++;
 
 	if (opt != ODP_PACKET_INVALID) {
 		struct ofp_ipoption *p = (struct ofp_ipoption *)odp_packet_data(opt);
@@ -1192,61 +1129,12 @@ enum ofp_return_code  ofp_ip_output_opt(odp_packet_t pkt, odp_packet_t opt,
 }
 
 #ifdef INET6
-static enum ofp_return_code ofp_output_ipv6_to_gre(
-	odp_packet_t pkt, struct ofp_ifnet *dev_gre,
-	uint16_t vrfid,	struct ofp_nh_entry **nh_new)
+
+enum ofp_return_code ofp_ip6_send(odp_packet_t pkt,
+				  struct ofp_nh6_entry *nh_param)
 {
-	struct ofp_ip6_hdr *ip6;
-	struct ofp_greip *greip;
-	uint32_t flags;
-	uint8_t	l2_size = 0;
-	int32_t	offset;
-	static uint16_t	id = 0;
-
-	*nh_new = ofp_get_next_hop(vrfid, dev_gre->ip_remote, &flags);
-
-	if (*nh_new == NULL)
-		return OFP_PKT_DROP;
-
-	ip6 = odp_packet_l3_ptr(pkt, NULL);
-
-	/* Remove eth header, prepend gre + ip */
-	if (odp_packet_has_l2(pkt))
-		l2_size = odp_packet_l3_offset(pkt) - odp_packet_l2_offset(pkt);
-
-	offset = sizeof(*greip) - l2_size;
-	if (offset >= 0)
-		greip = odp_packet_push_head(pkt, offset);
-	else
-		greip = odp_packet_pull_head(pkt, -offset);
-
-	odp_packet_has_l2_set(pkt, 0);
-	odp_packet_l3_offset_set(pkt, 0);
-
-	if (!greip)
-		return OFP_PKT_DROP;
-
-	greip->gi_flags = 0;
-	greip->gi_ptype = odp_cpu_to_be_16(OFP_ETHERTYPE_IPV6);
-
-	greip->gi_i.ip_hl = 5;
-	greip->gi_i.ip_v = OFP_IPVERSION;
-	greip->gi_i.ip_tos = 0;
-	greip->gi_i.ip_len = odp_cpu_to_be_16(
-		odp_be_to_cpu_16(ip6->ofp_ip6_plen) +
-		sizeof(*ip6) + sizeof(*greip));
-	greip->gi_i.ip_id = odp_cpu_to_be_16(id++);
-	greip->gi_i.ip_off = 0;
-	greip->gi_i.ip_ttl = ip6->ofp_ip6_hlim;
-	greip->gi_i.ip_p = OFP_IPPROTO_GRE;
-	greip->gi_i.ip_sum = 0;
-	greip->gi_i.ip_src.s_addr = dev_gre->ip_local;
-	greip->gi_i.ip_dst.s_addr = dev_gre->ip_remote;
-
-	odp_packet_has_ipv6_set(pkt, 0);
-	odp_packet_has_ipv4_set(pkt, 1);
-
-	return OFP_PKT_CONTINUE;
+	ofp_packet_user_area_reset(pkt);
+	return ofp_ip6_output(pkt, nh_param);
 }
 
 enum ofp_return_code ofp_ip6_output(odp_packet_t pkt,
@@ -1256,7 +1144,6 @@ enum ofp_return_code ofp_ip6_output(odp_packet_t pkt,
 	uint8_t l2_size;
 	void *l2_addr;
 	uint32_t flags;
-	struct ofp_nh_entry *nh4 = NULL;
 	struct ofp_nh6_entry *nh;
 	uint16_t vlan;
 	int out_port;
@@ -1300,13 +1187,8 @@ enum ofp_return_code ofp_ip6_output(odp_packet_t pkt,
 		return OFP_PKT_DROP;
 
 	/* GRE */
-	if (out_port == GRE_PORTS) {
-		if (ofp_output_ipv6_to_gre(pkt, dev_out, vrf,
-					     &nh4) == OFP_PKT_DROP)
-			return OFP_PKT_DROP;
-
-		return ofp_ip_output(pkt, nh4);
-	}
+	if (out_port == GRE_PORTS)
+		return ofp_output_ipv6_to_gre(pkt, dev_out);
 
 	if (!vlan)
 		l2_size = sizeof(struct ofp_ether_header);
@@ -1414,6 +1296,14 @@ enum ofp_return_code ofp_packet_input(odp_packet_t pkt,
 	}
 
 	odp_packet_user_ptr_set(pkt, ifnet);
+
+	/*
+	 * Packets from VXLAN_PORTS are looped from OFP and have
+	 * data stored in the user area.
+	 */
+	if (ifnet->port != VXLAN_PORTS) {
+		ofp_packet_user_area_reset(pkt);
+	}
 
 	OFP_DEBUG_PACKET(OFP_DEBUG_PKT_RECV_NIC, pkt, ifnet->port);
 

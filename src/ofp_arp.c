@@ -25,10 +25,9 @@
 
 #define NUM_SETS ARP_ENTRY_TABLE_SIZE
 #define NUM_ARPS ARP_ENTRIES_SIZE
-#define CLEANUP_TIMER_INTERVAL (ARP_CLEANUP_TIMER_INTERVAL * SEC_USEC)
-#define ENTRY_TIMEOUT (ARP_ENTRY_TIMEOUT * ODP_TIME_SEC_IN_NS) /* 20 minutes */
 #define ENTRY_UPD_TIMEOUT (ARP_ENTRY_UPD_TIMEOUT * US_PER_SEC)
 #define SAVED_PKT_TIMEOUT (ARP_SAVED_PKT_TIMEOUT * US_PER_SEC)
+#define AGE_DIVISOR 2
 
 #if (ODP_BYTE_ORDER == ODP_LITTLE_ENDIAN)
 #define hashfunc ofp_hashlittle
@@ -612,6 +611,11 @@ static int ofp_arp_free_shared_memory(void)
 	return rc;
 }
 
+void ofp_arp_init_prepare(void)
+{
+	ofp_shared_memory_prealloc(SHM_NAME_ARP, sizeof(*shm));
+}
+
 int ofp_arp_init_global(int age_interval, int entry_timeout)
 {
 	int i;
@@ -636,6 +640,10 @@ int ofp_arp_init_global(int age_interval, int entry_timeout)
 
 	HANDLE_ERROR(ofp_arp_init_tables());
 
+	if (!age_interval) {
+		age_interval = entry_timeout/AGE_DIVISOR;
+		if (age_interval < 1) age_interval = 1;
+	}
 	if (entry_timeout < age_interval) {
 		OFP_WARN("ARP age interval should be less than entry timeout, "
 			 "setting to %ds", entry_timeout);

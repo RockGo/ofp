@@ -30,7 +30,7 @@
 #include "ofpi_cli.h"
 #include "ofpi_pkt_processing.h"
 #include "ofpi_ifnet.h"
-
+#include "ofpi_ip.h"
 #include "ofpi_tcp_var.h"
 #include "ofpi_socketvar.h"
 #include "ofpi_socket.h"
@@ -111,19 +111,47 @@ void ofp_init_global_param(ofp_global_param_t *params)
 #ifdef SP
 	params->enable_nl_thread = 1;
 #endif /* SP */
-	params->arp.age_interval = ARP_AGE_INTERVAL;
 	params->arp.entry_timeout = ARP_ENTRY_TIMEOUT;
 	params->evt_rx_burst_size = OFP_EVT_RX_BURST_SIZE;
 	params->pcb_tcp_max = OFP_NUM_PCB_TCP_MAX;
 	params->pkt_pool.nb_pkts = SHM_PKT_POOL_NB_PKTS;
 	params->pkt_pool.buffer_size = SHM_PKT_POOL_BUFFER_SIZE;
+	params->pkt_tx_burst_size = OFP_PKT_TX_BURST_SIZE;
+}
+
+static void ofp_init_prepare(void)
+{
+	/*
+	 * Shared memory preallocations or other preparations before
+	 * actual global initializations can be done here.
+	 *
+	 * ODP has been fully initialized but OFP not yet. At this point
+	 * global_param can be accessed and ofp_shared_memory_prealloc()
+	 * can be called.
+	 */
+        ofp_uma_init_prepare();
+	ofp_avl_init_prepare();
+	ofp_reassembly_init_prepare();
+	ofp_pcap_init_prepare();
+	ofp_stat_init_prepare();
+	ofp_timer_init_prepare();
+	ofp_hook_init_prepare();
+	ofp_arp_init_prepare();
+	ofp_route_init_prepare();
+	ofp_portconf_init_prepare();
+	ofp_vlan_init_prepare();
+	ofp_vxlan_init_prepare();
+	ofp_socket_init_prepare();
+	ofp_tcp_var_init_prepare();
+	ofp_ip_init_prepare();
 }
 
 static int ofp_init_pre_global(ofp_global_param_t *params)
 {
-	/* Init shared memories */
-	HANDLE_ERROR(ofp_uma_init_global());
-
+        /*
+	 * Allocate and initialize global config memory first so that it
+	 * is available to later init phases.
+	 */
 	HANDLE_ERROR(ofp_global_config_alloc_shared_memory());
 	memset(shm, 0, sizeof(*shm));
 	shm->is_running = 1;
@@ -133,6 +161,16 @@ static int ofp_init_pre_global(ofp_global_param_t *params)
 	shm->cli_thread_is_running = 0;
 
 	*global_param = *params;
+
+	/* Initialize shared memory infra before preallocations */
+	HANDLE_ERROR(ofp_shared_memory_init_global());
+	/* Let different code modules preallocate shared memory */
+	ofp_init_prepare();
+	/* Finish preallocation phase before the corresponding allocations */
+	HANDLE_ERROR(ofp_shared_memory_prealloc_finish());
+
+        /* Initialize the UM allocator before doing other inits */
+	HANDLE_ERROR(ofp_uma_init_global());
 
 	ofp_register_sysctls();
 
@@ -152,7 +190,7 @@ static int ofp_init_pre_global(ofp_global_param_t *params)
 
 	HANDLE_ERROR(ofp_hook_init_global(params->pkt_hook));
 
-	HANDLE_ERROR(ofp_arp_init_global(params->arp.age_interval,
+	HANDLE_ERROR(ofp_arp_init_global(ARP_AGE_INTERVAL,
 			params->arp.entry_timeout));
 
 	HANDLE_ERROR(ofp_route_init_global());
@@ -169,7 +207,7 @@ static int ofp_init_pre_global(ofp_global_param_t *params)
 	pool_params.pkt.seg_len    = global_param->pkt_pool.buffer_size;
 	pool_params.pkt.len        = global_param->pkt_pool.buffer_size;
 	pool_params.pkt.num        = params->pkt_pool.nb_pkts;
-	pool_params.pkt.uarea_size = SHM_PKT_POOL_USER_AREA_SIZE;
+	pool_params.pkt.uarea_size = ofp_packet_min_user_area();
 	pool_params.type           = ODP_POOL_PACKET;
 
 	ofp_packet_pool = ofp_pool_create(SHM_PKT_POOL_NAME, &pool_params);
@@ -181,6 +219,7 @@ static int ofp_init_pre_global(ofp_global_param_t *params)
 	HANDLE_ERROR(ofp_socket_init_global(ofp_packet_pool));
 	HANDLE_ERROR(ofp_tcp_var_init_global());
 	HANDLE_ERROR(ofp_inet_init());
+	HANDLE_ERROR(ofp_ip_init_global());
 
 	return 0;
 }
@@ -244,6 +283,9 @@ int ofp_init_global(odp_instance_t instance, ofp_global_param_t *params)
 
 int ofp_init_local(void)
 {
+	/* This must be done first */
+	HANDLE_ERROR(ofp_shared_memory_init_local());
+
 	/* Lookup shared memories */
 	HANDLE_ERROR(ofp_uma_lookup_shared_memory());
 	HANDLE_ERROR(ofp_global_config_lookup_shared_memory());
@@ -263,6 +305,7 @@ int ofp_init_local(void)
 	HANDLE_ERROR(ofp_arp_init_local());
 	HANDLE_ERROR(ofp_tcp_var_lookup_shared_memory());
 	HANDLE_ERROR(ofp_send_pkt_out_init_local());
+	HANDLE_ERROR(ofp_ip_init_local());
 
 	return 0;
 }
@@ -364,6 +407,9 @@ int ofp_term_global(void)
 		rc = -1;
 	}
 
+	/* Terminate shared memory now that all blocks have been freed. */
+	CHECK_ERROR(ofp_shared_memory_term_global(), rc);
+
 	return rc;
 }
 
@@ -373,6 +419,8 @@ int ofp_term_post_global(const char *pool_name)
 	int rc = 0;
 
 	ofp_igmp_uninit(NULL);
+
+	CHECK_ERROR(ofp_ip_term_global(), rc);
 
 	/* Cleanup sockets */
 	CHECK_ERROR(ofp_socket_term_global(), rc);
@@ -440,6 +488,7 @@ int ofp_term_local(void)
 {
 	int rc = 0;
 
+	CHECK_ERROR(ofp_ip_term_local(), rc);
 	CHECK_ERROR(ofp_send_pkt_out_term_local(), rc);
 
 	return rc;

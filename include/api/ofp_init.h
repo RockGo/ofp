@@ -88,8 +88,6 @@ typedef struct ofp_global_param_t {
 	 * Global ARP parameters.
 	 */
 	struct arp_s {
-		/** Aging timer interval in seconds. Default is ARP_AGE_INTERVAL. */
-		int age_interval;
 		/** Entry timeout in seconds. Default is ARP_ENTRY_TIMEOUT. */
 		int entry_timeout;
 	} arp;
@@ -100,7 +98,14 @@ typedef struct ofp_global_param_t {
 	 */
 	int evt_rx_burst_size;
 
-	/** Maximum number of TCP PCBs.
+	/**
+	 * Number of packets sent at once (>= 1).
+	 * Default is OFP_PKT_TX_BURST_SIZE
+	 */
+	uint32_t pkt_tx_burst_size;
+
+	/**
+	 * Maximum number of TCP PCBs.
 	 * Default value is OFP_NUM_PCB_TCP_MAX
 	 */
 	int pcb_tcp_max;

@@ -23,7 +23,6 @@
 
 #define SHM_NAME_RT_LOOKUP_MTRIE	"OfpRtlookupMtrieShMem"
 
-#define ROUTE_LIST_SIZE			ROUTE4_RULE_LIST_SIZE
 #define NUM_RT_RULES                    ROUTE4_RULE_LIST_SIZE
 #define NUM_NODES			ROUTE4_MTRIE8_TABLE_NODES
 #define NUM_NODES_LARGE			ROUTE4_MTRIE16_TABLE_NODES
@@ -824,6 +823,11 @@ int ofp_rt_lookup_lookup_shared_memory(void)
 	}
 
 	return 0;
+}
+
+void ofp_rt_lookup_init_prepare(void)
+{
+	ofp_shared_memory_prealloc(SHM_NAME_RT_LOOKUP_MTRIE, sizeof(*shm));
 }
 
 int ofp_rt_lookup_init_global(void)

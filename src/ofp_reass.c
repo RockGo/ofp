@@ -50,7 +50,7 @@
 #include "ofpi_queue.h"
 #include "ofpi_reass.h"
 
-#define SHM_NAME_REASSEMBLY "OfpIpShMem"
+#define SHM_NAME_REASSEMBLY "OfpIpReassShMem"
 
 #define	IPREASS_NHASH_LOG2	6
 #define	IPREASS_NHASH		(1 << IPREASS_NHASH_LOG2)
@@ -133,6 +133,11 @@ int ofp_reassembly_lookup_shared_memory(void)
 		return -1;
 	}
 	return 0;
+}
+
+void ofp_reassembly_init_prepare(void)
+{
+	ofp_shared_memory_prealloc(SHM_NAME_REASSEMBLY, sizeof(*shm));
 }
 
 int ofp_reassembly_init_global(void)

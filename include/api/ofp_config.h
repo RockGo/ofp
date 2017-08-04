@@ -68,8 +68,6 @@
 
 /** Packet pool buffer size. */
 #define SHM_PKT_POOL_BUFFER_SIZE	1856
-/** Packet pool user area size. */
-#define SHM_PKT_POOL_USER_AREA_SIZE	16
 /** Packet pool name. */
 #define SHM_PKT_POOL_NAME "packet_pool"
 
@@ -123,10 +121,6 @@
  * OFP interface*/
 #define OFP_PKTOUT_QUEUE_MAX 64
 
-/**Maximum number of packets received at once in direct mode in
- * example applications - default value.*/
-#define OFP_PKT_RX_BURST_SIZE 16
-
 /**Maximum number of events received at once in scheduling mode
  * in default_event_dispatcher().*/
 #define OFP_EVT_RX_BURST_SIZE 16
@@ -163,8 +157,8 @@
 #define ARP_ENTRY_TABLE_SIZE 2048
 /**Total number of arp entries that can be stored. */
 #define ARP_ENTRIES_SIZE (NUM_SETS * 4)
-/**Default ARP age interval (in seconds) */
-#define ARP_AGE_INTERVAL 60
+/**Default ARP age interval (in seconds). If set to 0, then age interval is half of ARP_ENTRY_TIMEOUT. */
+#define ARP_AGE_INTERVAL 0
 /**Default ARP entry timeout (in seconds) */
 #define ARP_ENTRY_TIMEOUT 1200
 /**Timer trigger(s) to scan for old arp entries.*/

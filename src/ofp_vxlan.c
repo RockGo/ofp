@@ -206,7 +206,7 @@ enum ofp_return_code ofp_vxlan_input(odp_packet_t pkt)
 		odp_packet_l3_offset_set(pkt, sizeof(struct ofp_ether_header));
 
 	/* save data to user area */
-	struct vxlan_user_data *saved = odp_packet_user_area(pkt);
+	struct vxlan_user_data *saved = &ofp_packet_user_area(pkt)->vxlan;
 	saved->hdrlen = vxlen;
 	saved->vni = vni;
 
@@ -226,7 +226,6 @@ enum ofp_return_code ofp_vxlan_input(odp_packet_t pkt)
 enum ofp_return_code ofp_vxlan_prepend_hdr(odp_packet_t pkt, struct ofp_ifnet *vxdev,
 			  struct ofp_nh_entry *nh)
 {
-	static uint16_t id = 0;
 	struct ofp_vxlan_udp_ip *ip_udp_vxlan;
 	size_t size;
 
@@ -269,7 +268,6 @@ enum ofp_return_code ofp_vxlan_prepend_hdr(odp_packet_t pkt, struct ofp_ifnet *v
 	ip_udp_vxlan->ip.ip_tos = 0;
 	ip_udp_vxlan->ip.ip_len = odp_cpu_to_be_16(
 		size + sizeof(struct ofp_vxlan_udp_ip));
-	ip_udp_vxlan->ip.ip_id = odp_cpu_to_be_16(id++);
 	ip_udp_vxlan->ip.ip_off = 0;
 	ip_udp_vxlan->ip.ip_ttl = 2;
 	ip_udp_vxlan->ip.ip_p = OFP_IPPROTO_UDP;
@@ -306,6 +304,11 @@ static int ofp_vxlan_free_shared_memory(void)
 
 	shm = NULL;
 	return rc;
+}
+
+void ofp_vxlan_init_prepare(void)
+{
+	ofp_shared_memory_prealloc(SHM_NAME_VXLAN, sizeof(*shm));
 }
 
 int ofp_vxlan_init_global(void)
@@ -419,7 +422,7 @@ void ofp_vxlan_update_devices(odp_packet_t pkt, struct ofp_arphdr *arp, uint16_t
 			      uint8_t *save_space)
 {
 	/* Find the vxlan device this message is destined to. */
-	struct vxlan_user_data *saved = odp_packet_user_area(pkt);
+	struct vxlan_user_data *saved = &ofp_packet_user_area(pkt)->vxlan;
 	struct ofp_ifnet *vxdev = ofp_get_ifnet(VXLAN_PORTS, saved->vni);
 
 	/* Sanity check. */
@@ -444,7 +447,7 @@ void ofp_vxlan_restore_and_update_header(odp_packet_t pkt,
 	struct ofp_ip *ip;
 
 	/* Vxlan header pull length is saved in packet's user area. */
-	struct vxlan_user_data *saved = odp_packet_user_area(pkt);
+	struct vxlan_user_data *saved = &ofp_packet_user_area(pkt)->vxlan;
 	/* Restore the original header. */
 	eth = odp_packet_push_head(pkt, saved->hdrlen);
 
@@ -482,18 +485,19 @@ void ofp_vxlan_send_arp_request(odp_packet_t pkt, struct ofp_ifnet *dev)
 }
 
 enum ofp_return_code ofp_ip_output_vxlan(odp_packet_t pkt,
-					 struct ip_out *odata)
+					 struct ofp_ifnet *dev_out)
 {
+	struct ofp_nh_entry nh;
+	struct ofp_nh_entry *nhp = NULL;
+
 	/* Prepend packet with vxlan header */
-	if (ofp_vxlan_prepend_hdr(pkt, odata->dev_out, &odata->nh_vxlan) == OFP_PKT_DROP) {
+	if (ofp_vxlan_prepend_hdr(pkt, dev_out, &nh) == OFP_PKT_DROP) {
 		OFP_ERR("VXLAN: cannot prepend!");
 		return OFP_PKT_DROP;
 	}
 
-	if (odata->nh_vxlan.gw)
-		odata->nh = &odata->nh_vxlan;
-	else
-		odata->nh = NULL;
+	if (nh.gw)
+		nhp = &nh;
 
-	return OFP_PKT_CONTINUE;
+	return ofp_ip_output_recurse(pkt, nhp);
 }

@@ -132,6 +132,7 @@
 #include "ofpi_tcp_timer.h"
 #include "ofpi_callout.h"
 #include "ofpi_log.h"
+#include "ofpi_pkt_processing.h"
 
 #define SHM_NAME_SOCKET "OfpSocketShMem"
 
@@ -203,9 +204,9 @@ void f_sockets(struct cli_conn *conn, const char *s)
 #endif
 
 
-odp_packet_t ofp_packet_alloc(uint32_t len)
+odp_packet_t ofp_socket_packet_alloc(uint32_t len)
 {
-	return odp_packet_alloc(shm->pool, len);
+	return ofp_packet_alloc_from_pool(shm->pool, len);
 }
 
 odp_rwlock_t *ofp_accept_mtx(void)
@@ -254,6 +255,11 @@ int ofp_socket_lookup_shared_memory(void)
 		return -1;
 	}
 	return 0;
+}
+
+void ofp_socket_init_prepare(void)
+{
+	ofp_shared_memory_prealloc(SHM_NAME_SOCKET, sizeof(*shm));
 }
 
 int ofp_socket_init_global(odp_pool_t pool)
@@ -993,7 +999,7 @@ ofp_sosend_dgram(struct socket *so, struct ofp_sockaddr *addr, struct uio *uio,
 		uint8_t *p;
 		error = OFP_ENOBUFS;
 
-		top = ofp_packet_alloc(resid);
+		top = ofp_socket_packet_alloc(resid);
 
 		if (top == ODP_PACKET_INVALID)
 			goto out;
@@ -1200,7 +1206,7 @@ restart:
 				*/
 			} else {
 
-				top = odp_packet_alloc(shm->pool, 1);
+				top = ofp_socket_packet_alloc(1);
 				error = OFP_ENOBUFS;
 
 				if (top == ODP_PACKET_INVALID)

@@ -21,6 +21,12 @@ struct ofp_ifnet;
 
 void *default_event_dispatcher(void *arg);
 
+/**
+ * Return the minimum size of the user area that must be present in all
+ * ODP packets passed to OFP.
+ */
+uint32_t ofp_packet_min_user_area(void);
+
 enum ofp_return_code ofp_packet_input(odp_packet_t pkt,
 	odp_queue_t in_queue, ofp_pkt_processing_func pkt_func);
 
@@ -35,18 +41,10 @@ enum ofp_return_code ofp_tcp4_processing(odp_packet_t pkt);
 enum ofp_return_code ofp_send_frame(struct ofp_ifnet *dev, odp_packet_t pkt);
 enum ofp_return_code ofp_send_pending_pkt(void);
 
-enum ofp_return_code ofp_ip_output(odp_packet_t pkt,
-	struct ofp_nh_entry *nh_param);
-struct ofp_ip_moptions;
-struct inpcb;
-enum ofp_return_code ofp_ip_output_opt(odp_packet_t pkt, odp_packet_t opt,
-        struct ofp_nh_entry *nh_param, int flags,
-	struct ofp_ip_moptions *imo, struct inpcb *inp);
-enum ofp_return_code ofp_ip6_output(odp_packet_t pkt,
-	struct ofp_nh6_entry *nh_param);
-
-enum ofp_return_code ofp_sp_input(odp_packet_t pkt,
-	struct ofp_ifnet *ifnet);
+enum ofp_return_code ofp_ip_send(odp_packet_t pkt,
+				 struct ofp_nh_entry *nh_param);
+enum ofp_return_code ofp_ip6_send(odp_packet_t pkt,
+				  struct ofp_nh6_entry *nh_param);
 
 #if __GNUC__ >= 4
 #pragma GCC visibility pop

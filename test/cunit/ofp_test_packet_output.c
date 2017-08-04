@@ -215,7 +215,7 @@ init_suite(void)
 
 	(void) ofp_init_global(instance, &params);
 
-	ofp_arp_init_local();
+	ofp_init_local();
 
 	init_ifnet();
 
@@ -227,6 +227,7 @@ init_suite(void)
 static int
 clean_suite(void)
 {
+	ofp_term_local();
 	return 0;
 }
 
@@ -358,7 +359,7 @@ test_packet_output_gre(void)
 	 * interface. GRE+IP header is prepended. Packet's new destination is
 	 * link local. Packet is put into output queue.
 	 */
-	res = ofp_ip_output(pkt, NULL);
+	res = ofp_ip_send(pkt, NULL);
 	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
 
 	res = ofp_send_pending_pkt();
@@ -411,7 +412,7 @@ test_packet_output_gre_no_nexthop(void)
 	 * Packet's destination is GRE tunnel's p2p address, no next hop
 	 * is found for tunnel destination address, packet is dropped.
 	 */
-	res = ofp_ip_output(pkt, NULL);
+	res = ofp_ip_send(pkt, NULL);
 	CU_ASSERT_EQUAL(res, OFP_PKT_DROP);
 
 	res = ofp_send_pending_pkt();
@@ -648,7 +649,7 @@ test_hook_out_ipv4(void)
 	}
 
 	my_test_val = TEST_HOOK_OUT_IPv4;
-	res = ofp_ip_output(pkt, NULL);
+	res = ofp_ip_send(pkt, NULL);
 	my_test_val = 0;
 
 	CU_ASSERT_EQUAL(res, TEST_HOOK_OUT_IPv4_VALUE);

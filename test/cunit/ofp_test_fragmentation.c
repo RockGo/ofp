@@ -106,7 +106,7 @@ init_suite(void)
 	params.enable_nl_thread = 0;
 	(void) ofp_init_global(instance, &params);
 
-	ofp_arp_init_local();
+	ofp_init_local();
 
 	init_ifnet();
 
@@ -122,6 +122,7 @@ init_suite(void)
 static int
 clean_suite(void)
 {
+	ofp_term_local();
 	return 0;
 }
 
@@ -199,6 +200,26 @@ static void assert_ip_header(struct ofp_ip *ip, struct ofp_ip *ip_orig,
 	CU_ASSERT_EQUAL(ip->ip_dst.s_addr, ip_orig->ip_dst.s_addr);
 }
 
+static enum ofp_return_code send_packet(odp_packet_t pkt)
+{
+	/*
+	 * Send packets as if they were forwarded to avoid the stack
+	 * touching the ID field of the IP header.
+	 */
+	return ofp_ip_output_common(pkt, &nexthop, 0);
+}
+
+static void send_packet_and_check(odp_packet_t pkt)
+{
+	int res;
+
+	res = send_packet(pkt);
+	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
+
+	res = ofp_send_pending_pkt();
+	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
+}
+
 /*
  * Tests
  */
@@ -207,7 +228,6 @@ static void test_packet_size_is_less_then_mtu(void)
 {
 	odp_packet_t pkt_orig, pkt_sent;
 	odp_event_t ev;
-	int res;
 	struct ofp_ether_header *eth;
 
 	if (create_odp_packet_ip4(&pkt_orig, pkt1_frag1,
@@ -216,10 +236,7 @@ static void test_packet_size_is_less_then_mtu(void)
 		return;
 	}
 
-	res = ofp_ip_output(pkt_orig, &nexthop);
-	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
-	res = ofp_send_pending_pkt();
-	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
+	send_packet_and_check(pkt_orig);
 
 	ev = odp_queue_deq(dev->outq_def);
 	CU_ASSERT_NOT_EQUAL_FATAL(ev, ODP_EVENT_INVALID);
@@ -258,7 +275,7 @@ static void test_dont_fragment_set_pkt_dropped(void)
 	ip = odp_packet_l3_ptr(pkt, NULL);
 	ip->ip_off |= odp_cpu_to_be_16(OFP_IP_DF);
 
-	res = ofp_ip_output(pkt, &nexthop);
+	res = ofp_ip_send(pkt, &nexthop);
 	CU_ASSERT_EQUAL(res, OFP_PKT_DROP);
 
 	ev = odp_queue_deq(dev->outq_def);
@@ -272,7 +289,6 @@ static void test_packet_to_two_fragments(void)
 {
 	odp_packet_t pkt_orig, pkt_sent;
 	odp_event_t ev;
-	int res;
 	struct ofp_ether_header *eth;
 	struct ofp_ip *ip;
 	struct ofp_ip *ip_orig;
@@ -283,11 +299,7 @@ static void test_packet_to_two_fragments(void)
 		return;
 	}
 
-	res = ofp_ip_output(pkt_orig, &nexthop);
-	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
-
-	res = ofp_send_pending_pkt();
-	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
+	send_packet_and_check(pkt_orig);
 
 	/* ASSERT 1st fragment */
 	ev = odp_queue_deq(dev->outq_def);
@@ -356,7 +368,6 @@ static void test_packet_to_many_fragments(void)
 {
 	odp_packet_t pkt_orig, pkt_sent;
 	odp_event_t ev;
-	int res;
 	struct ofp_ether_header *eth;
 	struct ofp_ip *ip;
 	struct ofp_ip *ip_orig;
@@ -370,11 +381,7 @@ static void test_packet_to_many_fragments(void)
 		return;
 	}
 
-	res = ofp_ip_output(pkt_orig, &nexthop);
-	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
-
-	res = ofp_send_pending_pkt();
-	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
+	send_packet_and_check(pkt_orig);
 
 	/* ASSERT 1st fragment */
 	ev = odp_queue_deq(dev->outq_def);
@@ -507,7 +514,6 @@ static void test_fragment_fragmented_to_two(void)
 {
 	odp_packet_t pkt_orig, pkt_sent;
 	odp_event_t ev;
-	int res;
 	struct ofp_ether_header *eth;
 	struct ofp_ip *ip;
 	struct ofp_ip *ip_orig;
@@ -521,11 +527,7 @@ static void test_fragment_fragmented_to_two(void)
 		return;
 	}
 
-	res = ofp_ip_output(pkt_orig, &nexthop);
-	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
-
-	res = ofp_send_pending_pkt();
-	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
+	send_packet_and_check(pkt_orig);
 
 	/* ASSERT 1st fragment */
 	ev = odp_queue_deq(dev->outq_def);
