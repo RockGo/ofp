@@ -1653,9 +1653,9 @@ int ip_vs_conn_init(void)
 		"(size=%d, memory=%ldKbytes)\n",
 		IP_VS_CONN_TAB_SIZE,
 		(long)(IP_VS_CONN_TAB_SIZE * sizeof(struct list_head)) / 1024);
-	IP_VS_DBG(0, "Each connection entry needs %Zd bytes at least\n",
-		  sizeof(struct ip_vs_conn) +
-		  2 * sizeof(struct ip_vs_conn_idx));
+		IP_VS_DBG(0, "Each connection entry needs %Zd bytes at least\n",
+		sizeof(struct ip_vs_conn) +
+		2 * sizeof(struct ip_vs_conn_idx));
 
 	for_each_possible_cpu(cpu) {
 		struct list_head *this_cpu_conn_tab;

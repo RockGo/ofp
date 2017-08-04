@@ -90,7 +90,7 @@ ip_vs_fnat_xmit(struct rte_mbuf *skb, struct ip_vs_conn *cp,
                 goto tx_error;
 
         if (!cp->in_nh && sysctl_ip_vs_fast_xmit_inside) {
-            cp->in_nh = ip_vs_get_out_rt(skb, iphdr->daddr);
+                cp->in_nh = ip_vs_get_out_rt(skb, iphdr->daddr);
         }
         
         ret = ofp_ip_output((odp_packet_t)skb, cp->in_nh);
@@ -120,10 +120,10 @@ ip_vs_fnat_response_xmit(struct rte_mbuf *skb, struct ip_vs_protocol *pp,
         ipv4_cksum(iphdr, skb);
 
         if (pp->fnat_out_handler && !pp->fnat_out_handler(skb, pp, cp))
-                        goto err;
+                goto err;
 
         if (!cp->out_nh && sysctl_ip_vs_fast_xmit) {
-            cp->out_nh = ip_vs_get_out_rt(skb, iphdr->daddr);
+                cp->out_nh = ip_vs_get_out_rt(skb, iphdr->daddr);
         }
         
         ret = ofp_ip_output((odp_packet_t)skb, cp->out_nh);

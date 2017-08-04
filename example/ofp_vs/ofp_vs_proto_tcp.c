@@ -525,10 +525,8 @@ static int tcp_opt_add_toa(struct ip_vs_conn *cp,
         struct tcphdr *th;
         __u8 *p, *q;
 
-
         if (sysctl_ip_vs_toa_entry == 0)
             return 0;
-
 
         iph = ip_hdr(skb);
         th = tcp_hdr(iph);
@@ -540,7 +538,7 @@ static int tcp_opt_add_toa(struct ip_vs_conn *cp,
         }
 
         /* skb length and tcp option length checking */
-    rte_eth_dev_get_mtu(skb->port, &mtu);
+        rte_eth_dev_get_mtu(skb->port, &mtu);
 
         if (rte_pktmbuf_data_len(skb) > (mtu - sizeof(struct ip_vs_tcpo_addr))) {
                 IP_VS_INC_ESTATS(ip_vs_esmib, FULLNAT_ADD_TOA_FAIL_LEN);
@@ -593,9 +591,6 @@ static int tcp_opt_add_toa(struct ip_vs_conn *cp,
         /* reset skb length */
         skb->data_len += sizeof(struct ip_vs_tcpo_addr);
         skb->pkt_len += sizeof(struct ip_vs_tcpo_addr);
-
-
-
 
         IP_VS_INC_ESTATS(ip_vs_esmib, FULLNAT_ADD_TOA_OK);
         return 0;
