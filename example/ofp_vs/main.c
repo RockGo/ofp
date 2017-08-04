@@ -431,7 +431,7 @@ int main(int argc, char *argv[])
 	}
 
 	core_count = odp_cpu_count();
-	num_workers = core_count;
+	num_workers = core_count - 1;
 
 	if (appl_params.core_count)
 		num_workers = appl_params.core_count;
