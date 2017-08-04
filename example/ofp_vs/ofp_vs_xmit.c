@@ -93,7 +93,7 @@ ip_vs_fnat_xmit(struct rte_mbuf *skb, struct ip_vs_conn *cp,
                 cp->in_nh = ip_vs_get_out_rt(skb, iphdr->daddr);
         }
         
-        ret = ofp_ip_output((odp_packet_t)skb, cp->in_nh);
+        ret = ofp_ip_send((odp_packet_t)skb, cp->in_nh);
         LeaveFunction(10);
         return ret;
                 
@@ -126,7 +126,7 @@ ip_vs_fnat_response_xmit(struct rte_mbuf *skb, struct ip_vs_protocol *pp,
                 cp->out_nh = ip_vs_get_out_rt(skb, iphdr->daddr);
         }
         
-        ret = ofp_ip_output((odp_packet_t)skb, cp->out_nh);
+        ret = ofp_ip_send((odp_packet_t)skb, cp->out_nh);
         LeaveFunction(10);
         return ret;
 
@@ -165,7 +165,7 @@ ip_vs_nat_xmit(struct rte_mbuf *skb, struct ip_vs_conn *cp,
         IP_VS_DBG_PKT(10, pp, skb, 0, "After DNAT");
 
         LeaveFunction(10);
-        return ofp_ip_output((odp_packet_t)skb, NULL);
+        return ofp_ip_send((odp_packet_t)skb, NULL);
 
 tx_error:
         LeaveFunction(10);
@@ -192,7 +192,7 @@ ip_vs_normal_response_xmit(struct rte_mbuf *skb, struct ip_vs_protocol *pp,
         if (pp->snat_handler && !pp->snat_handler(skb, pp, cp))
                 goto drop;
 
-        return ofp_ip_output((odp_packet_t)skb, NULL);
+        return ofp_ip_send((odp_packet_t)skb, NULL);
 
 drop:
         LeaveFunction(10);
@@ -216,7 +216,7 @@ ip_vs_dr_xmit(struct rte_mbuf *skb, struct ip_vs_conn *cp,
             cp->in_nh = ip_vs_get_out_rt(skb, cp->daddr.ip);
         }
 
-        ret = ofp_ip_output((odp_packet_t)skb, cp->in_nh);
+        ret = ofp_ip_send((odp_packet_t)skb, cp->in_nh);
         LeaveFunction(10);
         return ret;        
 }

@@ -92,6 +92,10 @@ static void signal_handler(int signal)
   fprintf(stderr, "Recv signal %u (%s) exiting.\n", signal, signal_name);
 }
 
+#ifndef OFP_PKT_RX_BURST_SIZE
+#define OFP_PKT_RX_BURST_SIZE 16
+#endif
+
 static void direct_recv(const appl_args_t *appl_params)
 {
 	int i;
