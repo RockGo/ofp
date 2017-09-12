@@ -1538,10 +1538,11 @@ static void ip_vs_conn_flush(void)
 				}
 				IP_VS_DBG(4, "cpu:%d del connection\n", cpu);
 				cp = cidx->cp;
-				ip_vs_conn_expire_now(cp);
+                                /* Timer is multi thread unsafe. */
+				//ip_vs_conn_expire_now(cp);
 				if (cp->control) {
 					IP_VS_DBG(4, "del conn template\n");
-					ip_vs_conn_expire_now(cp->control);
+					//ip_vs_conn_expire_now(cp->control);
 				}
 			}
 			spin_unlock_bh(&per_cpu(ip_vs_conn_tab_lock, cpu));
