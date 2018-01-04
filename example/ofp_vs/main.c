@@ -20,7 +20,7 @@
  * Parsed command line application arguments
  */
 typedef struct {
-	int core_count;
+	char cpumaskstr[64];
 	int if_count;		/**< Number of interfaces to be used */
 	char **if_names;	/**< Array of pointers to interface names */
 	char *conf_file;
@@ -392,7 +392,6 @@ int main(int argc, char *argv[])
 	odph_linux_pthread_t thread_tbl[MAX_WORKERS];
 	int core_count, num_workers;
 	odp_cpumask_t cpumask;
-	char cpumaskstr[64];
 	odph_linux_thr_params_t thr_params;
 	odp_instance_t instance;
 	struct sigaction signal_action;
@@ -431,15 +430,15 @@ int main(int argc, char *argv[])
 	}
 
 	core_count = odp_cpu_count();
-	num_workers = core_count - 1;
 
-	if (appl_params.core_count)
-		num_workers = appl_params.core_count;
+    odp_cpumask_from_str(&cpumask, appl_params.cpumaskstr);
+    num_workers = odp_cpumask_count(&cpumask);
+
+    if (num_workers <= 0) 
+	    num_workers = core_count - 1;
+
 	if (num_workers > MAX_WORKERS)
 		num_workers = MAX_WORKERS;
-
-	num_workers = odp_cpumask_default_worker(&cpumask, num_workers);
-	odp_cpumask_to_str(&cpumask, cpumaskstr, sizeof(cpumaskstr));
 
 	ofp_vs_num_workers = num_workers;
 	odp_cpumask_copy(&ofp_vs_worker_cpumask, &cpumask);
@@ -447,7 +446,7 @@ int main(int argc, char *argv[])
 	printf("odp_cpu_count : %i\n", core_count);
 	printf("Num worker threads: %i\n", num_workers);
 	printf("first CPU:          %i\n", odp_cpumask_first(&cpumask));
-	printf("cpu mask:           %s\n", cpumaskstr);
+	printf("cpu mask:           %s\n", appl_params.cpumaskstr);
 
 	
 	/*
@@ -555,7 +554,7 @@ static void parse_args(int argc, char *argv[], appl_args_t *appl_args)
 
 		switch (opt) {
 		case 'c':
-			appl_args->core_count = atoi(optarg);
+			strcpy(appl_args->cpumaskstr, optarg);
 			break;
 			/* parse packet-io interface names */
 		case 'i':
@@ -635,6 +634,11 @@ static void parse_args(int argc, char *argv[], appl_args_t *appl_args)
 		}
 	}
 
+	if (strncmp(appl_args->cpumaskstr, "0x", 2)) {
+        usage(argv[0]);
+		exit(EXIT_FAILURE);
+    }
+
 	if (appl_args->if_count == 0) {
 		usage(argv[0]);
 		exit(EXIT_FAILURE);
@@ -684,7 +688,7 @@ static void usage(char *progname)
 {
 	printf("\n"
 		   "Usage: %s OPTIONS\n"
-		   "  E.g. %s -i eth1,eth2,eth3\n"
+		   "  E.g. %s -i 0,1,2 -c 0x00fc\n"
 		   "\n"
 		   "ODPFastpath application.\n"
 		   "\n"
@@ -694,7 +698,7 @@ static void usage(char *progname)
 		   "  -p, Inner interface to set fnat laddr fdir rules\n"
 		   "\n"
 		   "Optional OPTIONS\n"
-		   "  -c, --count <number> Core count.\n"
+		   "  -c, --core-mask <core mask> Core mask with hex string.\n"
 		   "  -h, --help           Display help and exit.\n"
 		   "\n", NO_PATH(progname), NO_PATH(progname)
 		);

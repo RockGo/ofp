@@ -159,7 +159,7 @@ enum ofp_return_code ofp_eth_vlan_processing(odp_packet_t pkt)
 		(uintptr_t) odp_packet_l3_ptr(pkt, NULL) !=
 			(uintptr_t)odp_packet_l2_ptr(pkt, NULL) +
 				sizeof(struct ofp_ether_header))) {
-		OFP_DBG("odp_packet_l3_offset_set");
+		//OFP_DBG("odp_packet_l3_offset_set");
 		odp_packet_l3_offset_set(pkt, sizeof(struct ofp_ether_header));
 	}
 #endif
@@ -181,7 +181,7 @@ enum ofp_return_code ofp_eth_vlan_processing(odp_packet_t pkt)
 #endif
 	}
 
-	OFP_DBG("ETH TYPE = %04x", ethtype);
+	//OFP_DBG("ETH TYPE = %04x", ethtype);
 
 	/* network layer classifier */
 	switch (ethtype) {
@@ -534,9 +534,11 @@ enum ofp_return_code ofp_arp_processing(odp_packet_t pkt)
 	if (odp_be_to_cpu_16(arp->op) == OFP_ARPOP_REPLY)
 		ofp_add_mac(dev, arp->ip_src, arp->eth_src);
 
+    /*
 	OFP_DBG("Device IP: %s, Packet Dest IP: %s",
 		ofp_print_ip_addr(dev->ip_addr),
 		ofp_print_ip_addr(arp->ip_dst));
+    */
 
 	/* Check for VXLAN interface */
 	if (odp_unlikely(!PHYS_PORT(dev->port))) {

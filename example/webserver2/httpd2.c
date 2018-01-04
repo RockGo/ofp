@@ -116,6 +116,8 @@ static int analyze_http(char *http, int s)
 	char *url;
 	char *p;
 
+	OFP_INFO("%s %s\n", __func__, http);
+
 	if (!strncmp(http, "GET ", 4)) {
 		url = http + 4;
 		while (*url == ' ')
@@ -157,16 +159,28 @@ static void notify(union ofp_sigval sv)
 				       &alen);
 		(void)new;
 		/* new == ss->sockfd2 */
+		OFP_INFO("ofp_accept l:%d c:%d\n", s, new);	
 		return;
 	}
 
 	if (event != OFP_EVENT_RECV)
 		return;
 
-	if (pkt == ODP_PACKET_INVALID)
+	
+	if (pkt == ODP_PACKET_INVALID) {
+		OFP_ERR("OFP_EVENT_RECV s:%d ODP_PACKET_INVALID\n", s);	
 		return;
+	}
 
 	if (odp_unlikely(odp_packet_has_error(pkt))) {
+		if (odp_packet_has_l2_error(pkt))
+			OFP_ERR("OFP_EVENT_RECV s:%d odp_packet_has_l2_error\n", s);	
+		else if (odp_packet_has_l3_error(pkt))
+			OFP_ERR("OFP_EVENT_RECV s:%d odp_packet_has_l3_error\n", s);	
+		else if (odp_packet_has_l4_error(pkt))
+			OFP_ERR("OFP_EVENT_RECV s:%d odp_packet_has_l4_error\n", s);	
+		else
+			OFP_ERR("OFP_EVENT_RECV s:%d odp_packet_has_error\n", s);	
 		odp_packet_free(pkt);
 		ss->pkt = ODP_PACKET_INVALID;
 		return;
@@ -174,6 +188,8 @@ static void notify(union ofp_sigval sv)
 
 
 	r = odp_packet_len(pkt);
+
+	OFP_INFO("OFP_EVENT_RECV s:%d len:%d\n", s, r);	
 
 	if (r > 0) {
 		buf = odp_packet_data(pkt);

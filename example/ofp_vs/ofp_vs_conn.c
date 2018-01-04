@@ -1599,12 +1599,14 @@ int ip_vs_conn_init(void)
 		rte_lcore_count(), odp_cpu_count(), ofp_vs_worker_count());	
 	for_each_possible_cpu(cpu) {
 		void *tmp;
+		unsigned socket_id = rte_lcore_to_socket_id(cpu);
+
 		/*
 		 * Allocate the connection hash table and
 		 * initialize its list heads
 		 */
-		tmp = rte_malloc("ip_vs_conn_tab",
-			IP_VS_CONN_TAB_SIZE * sizeof(struct list_head), 0);
+		tmp = rte_malloc_socket("ip_vs_conn_tab",
+			IP_VS_CONN_TAB_SIZE * sizeof(struct list_head), 0, socket_id);
 		if (!tmp) {
 			int i;
 			for(i=0; i < cpu; i++) {
