@@ -8,6 +8,7 @@
 #define __OFP_VS_H__
 
 #include "ofp.h"
+#include "ofp_cli.h"
 #include "ofpi_portconf.h"
 #include "ofpi_debug.h"
 #include "ofpi_stat.h"

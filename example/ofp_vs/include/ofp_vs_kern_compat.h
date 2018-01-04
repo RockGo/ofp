@@ -33,6 +33,11 @@ typedef uint64_t u64;
 #define for_each_possible_cpu(__cpu) \
 	for (__cpu = 0; __cpu <	IP_VS_POSSIBLE_CPU; __cpu++)
 
+/*
+#define for_each_possible_cpu(__cpu) \
+    for_each_odp_cpumask(__cpu, &ofp_vs_worker_cpumask)
+*/
+
 #define num_possible_cpus() IP_VS_POSSIBLE_CPU
 
 #define for_each_online_cpu(__cpu) \
