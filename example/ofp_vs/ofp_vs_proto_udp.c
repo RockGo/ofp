@@ -158,7 +158,7 @@ udp_dnat_handler(struct rte_mbuf *skb,
 }
 
 
-static int udp_timeouts[IP_VS_UDP_S_LAST + 1] = {
+static int udp_timeouts[IP_VS_UDP_S_LAST + 1] __rte_cache_aligned = {
 	[IP_VS_UDP_S_NORMAL] = 5 * HZ,
 	[IP_VS_UDP_S_LAST] = 2 * HZ,
 };

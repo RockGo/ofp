@@ -341,16 +341,16 @@ extern struct ip_vs_protocol *ip_vs_proto_get(unsigned short proto);
 struct ip_vs_conn_idx {
 	struct list_head c_list;	/* hashed list heads */
 
-	u16 af;			/* address family */
-	__u16 protocol;		/* Which protocol (TCP/UDP) */
 	__be16 s_port;		/* source port */
 	__be16 d_port;		/* destination port */
+	__u16 protocol;		/* Which protocol (TCP/UDP) */
+	u16 af;			/* address family */
 	union nf_inet_addr s_addr;	/* source address */
 	union nf_inet_addr d_addr;	/* destination address */
 
-	struct ip_vs_conn *cp;	/* point to connection */
+	//struct ip_vs_conn *cp;	/* point to connection */
 	volatile __u16 flags;	/* status flags */
-};
+} __rte_cache_aligned;
 
 #define IP_VS_SYNPROXY_SKB_STORE_DEFAULT	3
 struct mbuf_table {

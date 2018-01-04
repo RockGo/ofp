@@ -746,7 +746,7 @@ static const int tcp_state_off[IP_VS_DIR_LAST] = {
 /*
  *        Timeout table[state]
  */
-int sysctl_ip_vs_tcp_timeouts[IP_VS_TCP_S_LAST + 1] = {
+int sysctl_ip_vs_tcp_timeouts[IP_VS_TCP_S_LAST + 1] __rte_cache_aligned = {
         [IP_VS_TCP_S_NONE] = 2 * HZ,
         [IP_VS_TCP_S_ESTABLISHED] = 90 * HZ,
         [IP_VS_TCP_S_SYN_SENT] = 3 * HZ,
@@ -888,6 +888,8 @@ set_tcp_state(struct ip_vs_protocol *pp, struct ip_vs_conn *cp,
         int new_state = IP_VS_TCP_S_CLOSE;
         int state_off = tcp_state_off[direction];
         (void)pp;
+
+        rte_prefetch0(sysctl_ip_vs_tcp_timeouts);
 
         /*
          *    Update state offset to INPUT_ONLY if necessary

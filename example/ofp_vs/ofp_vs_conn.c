@@ -303,21 +303,39 @@ static inline struct ip_vs_conn *__ip_vs_conn_get
 	spin_lock(&__get_cpu_var(ip_vs_conn_tab_lock));
 
 	list_for_each_entry(cidx, &this_cpu_conn_tab[hash], c_list) {
-		cp = cidx->cp;
+		//cp = cidx->cp;
 		if (cidx->af == af &&
 		    ip_vs_addr_equal(af, s_addr, &cidx->s_addr) &&
 		    ip_vs_addr_equal(af, d_addr, &cidx->d_addr) &&
 		    s_port == cidx->s_port && d_port == cidx->d_port &&
-		    ((!s_port) ^ (!(cp->flags & IP_VS_CONN_F_NO_CPORT))) &&
 		    protocol == cidx->protocol) {
 			/* HIT */
-			atomic_inc(&cp->refcnt);
 			*res_dir = cidx->flags & IP_VS_CIDX_F_DIR_MASK;
+
+                        switch (*res_dir) {
+                        case IP_VS_CIDX_F_OUT2IN:
+                                cp = (struct ip_vs_conn *)((void *)cidx +
+                                        (sizeof(struct ip_vs_conn_idx) * 2));
+                                break;
+                        case IP_VS_CIDX_F_IN2OUT:
+                                cp = (struct ip_vs_conn *)((void *)cidx +
+                                        sizeof(struct ip_vs_conn_idx));
+                                break;
+                        default:
+                                goto out;
+                                break;
+
+                        }
+
+                        //rte_prefetch0(cidx->c_list.next); 
+
+			atomic_inc(&cp->refcnt);
 			spin_unlock(&__get_cpu_var(ip_vs_conn_tab_lock));
 			return cp;
 		}
 	}
 
+out:
 	spin_unlock(&__get_cpu_var(ip_vs_conn_tab_lock));
 
 	return NULL;
@@ -359,7 +377,9 @@ struct ip_vs_conn *ip_vs_ct_in_get
 	spin_lock(&__get_cpu_var(ip_vs_conn_tab_lock));
 
 	list_for_each_entry(cidx, &this_cpu_conn_tab[hash], c_list) {
-		cp = cidx->cp;
+		//cp = cidx->cp;
+                cp = (struct ip_vs_conn *)((void *)cidx +
+			    (sizeof(struct ip_vs_conn_idx) * 2));
 		if (cidx->af == af &&
 		    ip_vs_addr_equal(af, s_addr, &cidx->s_addr) &&
 		    /* protocol should only be IPPROTO_IP if
@@ -420,7 +440,7 @@ void ip_vs_conn_put(struct ip_vs_conn *cp)
 		mod_timer(&cp->timer, ticks + timeout);
 	}
 	cp->expires = ticks + timeout;	
-	__ip_vs_conn_put(cp);
+	__ip_vs_conn_put(cp->in_idx);
 }
 
 /*
@@ -1162,16 +1182,20 @@ struct ip_vs_conn *ip_vs_conn_new(int af, int proto,
 	}
 
 	ret = rte_mempool_get(per_cpu(ip_vs_conn_cachep, cpuid),
-			(void **)&cp);
+			(void **)&ci_idx);
 	if (ret != 0) {
 		IP_VS_ERR_RL("%s(): no memory cpu%d\n", __func__, cpuid);
 		return NULL;
 	}
 
 	/* init connection index of OUTside2INside */
+        cp = (struct ip_vs_conn *)((void *)ci_idx +
+			(sizeof(struct ip_vs_conn_idx) * 2));
+        /*
 	ci_idx =
 	    (struct ip_vs_conn_idx *)(((__u8 *) cp) +
 				      sizeof(struct ip_vs_conn));
+        */
 	INIT_LIST_HEAD(&ci_idx->c_list);
 	ci_idx->af = af;
 	ci_idx->protocol = proto;
@@ -1180,13 +1204,16 @@ struct ip_vs_conn *ip_vs_conn_new(int af, int proto,
 	ip_vs_addr_copy(af, &ci_idx->d_addr, vaddr);
 	ci_idx->d_port = vport;
 	ci_idx->flags |= IP_VS_CIDX_F_OUT2IN;
-	ci_idx->cp = cp;
+	//ci_idx->cp = cp;
 
 	/* init connection index of INside2OUTside */
+	co_idx = ci_idx + 1;
+        /*
 	co_idx =
 	    (struct ip_vs_conn_idx *)(((__u8 *) cp) +
 				      sizeof(struct ip_vs_conn) +
 				      sizeof(struct ip_vs_conn_idx));
+        */
 	INIT_LIST_HEAD(&co_idx->c_list);
 	co_idx->af = af;
 	co_idx->protocol = proto;
@@ -1194,7 +1221,7 @@ struct ip_vs_conn *ip_vs_conn_new(int af, int proto,
 			&co_idx->s_addr, daddr);
 	co_idx->s_port = dport;
 	co_idx->flags |= IP_VS_CIDX_F_IN2OUT;
-	co_idx->cp = cp;
+	//co_idx->cp = cp;
 
 	/* now init connection */
 	ofp_vs_timer_setup(&cp->timer, ip_vs_conn_expire, (void *)cp);
@@ -1324,7 +1351,8 @@ static void *ip_vs_conn_array(struct seq_file *seq, loff_t pos)
 		list_for_each_entry(cidx, &ip_vs_conn_tab[idx], c_list) {
 			if ((cidx->flags & IP_VS_CIDX_F_OUT2IN) && (pos-- == 0)) {
 				seq->private = &ip_vs_conn_tab[idx];
-				return cidx->cp;
+				return (struct ip_vs_conn *)((void *)cidx +
+						(sizeof(struct ip_vs_conn_idx) * 2));
 			}
 		}
 		ct_read_unlock_bh(idx);
@@ -1355,7 +1383,8 @@ static void *ip_vs_conn_seq_next(struct seq_file *seq, void *v, loff_t * pos)
 	while ((e = cidx->c_list.next) != l) {
 		cidx = list_entry(e, struct ip_vs_conn_idx, c_list);
 		if (cidx->flags & IP_VS_CIDX_F_OUT2IN) {
-			return cidx->cp;
+			return (struct ip_vs_conn *)((void *)cidx +
+						(sizeof(struct ip_vs_conn_idx) * 2));
 		}
 	}
 
@@ -1367,7 +1396,8 @@ static void *ip_vs_conn_seq_next(struct seq_file *seq, void *v, loff_t * pos)
 		list_for_each_entry(cidx, &ip_vs_conn_tab[idx], c_list) {
 			if (cidx->flags & IP_VS_CIDX_F_OUT2IN) {
 				seq->private = &ip_vs_conn_tab[idx];
-				return cidx->cp;
+				return (struct ip_vs_conn *)((void *)cidx +
+						(sizeof(struct ip_vs_conn_idx) * 2));
 			}
 		}
 		ct_read_unlock_bh(idx);
@@ -1537,7 +1567,8 @@ static void ip_vs_conn_flush(void)
 					continue;
 				}
 				IP_VS_DBG(4, "cpu:%d del connection\n", cpu);
-				cp = cidx->cp;
+				cp = (struct ip_vs_conn *)((void *)cidx +
+						(sizeof(struct ip_vs_conn_idx) * 2));
                                 /* Timer is multi thread unsafe. */
 				//ip_vs_conn_expire_now(cp);
 				if (cp->control) {
