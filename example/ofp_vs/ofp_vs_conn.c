@@ -1553,7 +1553,7 @@ static void ip_vs_conn_flush(void)
                 ip_vs_conn_tab_per = per_cpu(ip_vs_conn_tab_percpu, cpu);
                 if (ip_vs_conn_tab_per == NULL)
                         continue;
-        flush_again:
+        //flush_again:
                 for (idx = 0; idx < IP_VS_CONN_TAB_SIZE; idx++) {
                         /*
                          *  Lock is actually needed in this loop.
@@ -1639,9 +1639,9 @@ int ip_vs_conn_init(void)
                 tmp = rte_malloc_socket("ip_vs_conn_tab",
                         IP_VS_CONN_TAB_SIZE * sizeof(struct list_head), 0, socket_id);
                 if (!tmp) {
-                tmp = rte_malloc_socket("ip_vs_conn_tab",
-                        IP_VS_CONN_TAB_SIZE * sizeof(struct list_head), 0, SOCKET_ID_ANY);
-        }
+                        tmp = rte_malloc_socket("ip_vs_conn_tab",
+                                IP_VS_CONN_TAB_SIZE * sizeof(struct list_head), 0, SOCKET_ID_ANY);
+                }
 
                 if (!tmp) {
                         int i;
