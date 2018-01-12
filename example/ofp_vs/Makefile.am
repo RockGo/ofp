@@ -15,6 +15,7 @@ ofp_vs_CFLAGS += -DCONFIG_IP_VS_PROTO_TCP
 ofp_vs_CFLAGS += -DCONFIG_IP_VS_PROTO_UDP 
 ofp_vs_CFLAGS += -DCONFIG_IP_VS_PROTO_ICMP 
 ofp_vs_CFLAGS += -DCONFIG_OFP_VS_RTE_TIMER
+ofp_vs_CFLAGS += -D_SVID_SOURCE
 
 dist_ofp_vs_SOURCES = main.c ofp_vs_core.c ofp_vs_ctl.c ofp_vs_proto_tcp.c \
 		ofp_vs_proto_udp.c ofp_vs_sched.c ofp_vs_rr.c ofp_vs_conn.c \

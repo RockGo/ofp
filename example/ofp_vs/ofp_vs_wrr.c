@@ -86,8 +86,6 @@ static int ip_vs_wrr_max_weight(struct ip_vs_service *svc)
 static int ip_vs_wrr_init_svc(struct ip_vs_service *svc)
 {
         struct ip_vs_wrr_mark *mark;
-        int cpu = svc - svc->svc0;
-        unsigned socket_id = rte_lcore_to_socket_id(cpu);
 
         /*
          *    Allocate the mark variable for WRR scheduling

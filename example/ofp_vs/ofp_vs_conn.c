@@ -314,11 +314,11 @@ static inline struct ip_vs_conn *__ip_vs_conn_get
 
                         switch (*res_dir) {
                         case IP_VS_CIDX_F_OUT2IN:
-                                cp = (struct ip_vs_conn *)((void *)cidx +
+                                cp = (struct ip_vs_conn *)((char *)cidx +
                                         (sizeof(struct ip_vs_conn_idx) * 2));
                                 break;
                         case IP_VS_CIDX_F_IN2OUT:
-                                cp = (struct ip_vs_conn *)((void *)cidx +
+                                cp = (struct ip_vs_conn *)((char *)cidx +
                                         sizeof(struct ip_vs_conn_idx));
                                 break;
                         default:
@@ -378,7 +378,7 @@ struct ip_vs_conn *ip_vs_ct_in_get
 
         list_for_each_entry(cidx, &this_cpu_conn_tab[hash], c_list) {
                 //cp = cidx->cp;
-                cp = (struct ip_vs_conn *)((void *)cidx +
+                cp = (struct ip_vs_conn *)((char *)cidx +
                             (sizeof(struct ip_vs_conn_idx) * 2));
                 if (cidx->af == af &&
                     ip_vs_addr_equal(af, s_addr, &cidx->s_addr) &&
@@ -1189,7 +1189,7 @@ struct ip_vs_conn *ip_vs_conn_new(int af, int proto,
         }
 
         /* init connection index of OUTside2INside */
-        cp = (struct ip_vs_conn *)((void *)ci_idx +
+        cp = (struct ip_vs_conn *)((char *)ci_idx +
                         (sizeof(struct ip_vs_conn_idx) * 2));
         /*
         ci_idx =
@@ -1567,7 +1567,7 @@ static void ip_vs_conn_flush(void)
                                         continue;
                                 }
                                 IP_VS_DBG(4, "cpu:%d del connection\n", cpu);
-                                cp = (struct ip_vs_conn *)((void *)cidx +
+                                cp = (struct ip_vs_conn *)((char *)cidx +
                                                 (sizeof(struct ip_vs_conn_idx) * 2));
                                 /* Timer is multi thread unsafe. */
                                 //ip_vs_conn_expire_now(cp);

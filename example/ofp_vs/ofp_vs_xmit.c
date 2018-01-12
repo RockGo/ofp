@@ -21,6 +21,7 @@
 static inline void
 ipv4_cksum(struct iphdr *iphdr, struct rte_mbuf *skb)
 {
+        (void)skb;
         iphdr->check = 0;
         if (sysctl_ip_vs_csum_offload) {
                 /* Use hardware csum offload */
