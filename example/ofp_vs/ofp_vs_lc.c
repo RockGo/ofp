@@ -40,6 +40,7 @@ static struct ip_vs_dest *ip_vs_lc_schedule(struct ip_vs_service *svc,
 {
 	struct ip_vs_dest *dest, *least = NULL;
 	unsigned int loh = 0, doh;
+    (void)skb;
 
 	IP_VS_DBG(6, "%s(): Scheduling...\n", __func__);
 

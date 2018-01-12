@@ -504,7 +504,12 @@ int ofp_vs_init(odp_instance_t instance, ofp_global_param_t *app_init_params)
 		return ret;
 	}
 
-	if ((ret = ip_vs_rr_init()) < 0) {
+	if ((ret = ip_vs_wrr_init()) < 0) {
+		OFP_ERR("ip_vs_rr_init failed %d\n", ret);
+		return ret;
+	}
+
+    if ((ret = ip_vs_lc_init()) < 0) {
 		OFP_ERR("ip_vs_rr_init failed %d\n", ret);
 		return ret;
 	}
@@ -522,6 +527,7 @@ void ofp_vs_finish(void)
 {
 	ip_vs_rr_cleanup();
 	ip_vs_wrr_cleanup();
+	ip_vs_lc_cleanup();
 	ip_vs_snat_cleanup();
 	ip_vs_protocol_cleanup();
 	ip_vs_conn_cleanup();
