@@ -41,6 +41,13 @@ void ofp_vs_ctl_finish(void);
 
 int ip_vs_rr_init(void);
 void ip_vs_rr_cleanup(void);
+
+int ip_vs_wrr_init(void);
+void ip_vs_wrr_cleanup(void);
+
+int ip_vs_lc_init(void);
+void ip_vs_lc_cleanup(void);
+
 int ip_vs_snat_init(void);
 void ip_vs_snat_cleanup(void);
 
