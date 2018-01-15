@@ -13,6 +13,7 @@ static struct ip_vs_conn *icmp_conn_in_get(int af, const struct rte_mbuf *skb,
 	struct iphdr *ih = ip_hdr(skb);
 	struct icmphdr *icmph = icmp_hdr(ih);
 	(void)proto_off;
+    (void)pp;
 
 	if (icmph == NULL) {
 		return NULL;
@@ -44,6 +45,7 @@ static struct ip_vs_conn *icmp_conn_out_get(int af, const struct rte_mbuf *skb,
 	struct iphdr *ih = ip_hdr(skb);
 	struct icmphdr *icmph = icmp_hdr(ih);
 	(void)proto_off;
+    (void)pp;
 
 	if (icmph == NULL) {
 		return NULL;
@@ -133,6 +135,7 @@ ip_vs_icmp_debug_packet(struct ip_vs_protocol *pp,
 	char buf[128];
 	struct iphdr *ih = ip_hdr(skb);
 	(void)offset;
+    (void)msg;
 
 	if (ih == NULL)
 		sprintf(buf, "%s TRUNCATED", pp->name);
