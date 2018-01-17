@@ -205,7 +205,7 @@ static inline int __ip_vs_conn_hash(struct ip_vs_conn *cp, unsigned ihash,
                 list_add(&ci_idx->c_list, &this_cpu_conn_tab[ihash]);
                 list_add(&co_idx->c_list, &this_cpu_conn_tab[ohash]);
                 cp->flags |= IP_VS_CONN_F_HASHED;
-                atomic_inc(&cp->refcnt);
+                ++cp->refcnt;
                 ret = 1;
         } else {
                 pr_err("%s(): request for already hashed, called from %pF\n",
@@ -239,13 +239,13 @@ static inline int ip_vs_conn_hash(struct ip_vs_conn *cp)
                                cp->lport);
 
         /* locked */
-        spin_lock(&per_cpu(ip_vs_conn_tab_lock, cp->cpuid));
+        //spin_lock(&per_cpu(ip_vs_conn_tab_lock, cp->cpuid));
 
         /* hashed */
         ret = __ip_vs_conn_hash(cp, ihash, ohash);
 
         /* unlocked */
-        spin_unlock(&per_cpu(ip_vs_conn_tab_lock, cp->cpuid));
+        //spin_unlock(&per_cpu(ip_vs_conn_tab_lock, cp->cpuid));
 
         return ret;
 }
@@ -261,24 +261,24 @@ static inline int ip_vs_conn_unhash(struct ip_vs_conn *cp)
         int ret;
 
         /* locked */
-        spin_lock(&per_cpu(ip_vs_conn_tab_lock, cp->cpuid));
+        //spin_lock(&per_cpu(ip_vs_conn_tab_lock, cp->cpuid));
 
         /* unhashed */
         if ((cp->flags & IP_VS_CONN_F_HASHED)
-            && (atomic_read(&cp->refcnt) == 2)) {
+            && (cp->refcnt == 2)) {
                 ci_idx = cp->in_idx;
                 co_idx = cp->out_idx;
                 list_del(&ci_idx->c_list);
                 list_del(&co_idx->c_list);
                 cp->flags &= ~IP_VS_CONN_F_HASHED;
-                atomic_dec(&cp->refcnt);
+                --cp->refcnt;
                 ret = 1;
         } else {
                 ret = 0;
         }
 
         /* unlocked */
-        spin_unlock(&per_cpu(ip_vs_conn_tab_lock, cp->cpuid));
+        //spin_unlock(&per_cpu(ip_vs_conn_tab_lock, cp->cpuid));
 
         return ret;
 }
@@ -300,7 +300,7 @@ static inline struct ip_vs_conn *__ip_vs_conn_get
         hash = ip_vs_conn_hashkey(af, s_addr, s_port, d_addr, d_port);
         this_cpu_conn_tab = __get_cpu_var(ip_vs_conn_tab_percpu);
 
-        spin_lock(&__get_cpu_var(ip_vs_conn_tab_lock));
+        //spin_lock(&__get_cpu_var(ip_vs_conn_tab_lock));
 
         list_for_each_entry(cidx, &this_cpu_conn_tab[hash], c_list) {
                 //cp = cidx->cp;
@@ -327,16 +327,14 @@ static inline struct ip_vs_conn *__ip_vs_conn_get
 
                         }
 
-                        //rte_prefetch0(cidx->c_list.next); 
-
-                        atomic_inc(&cp->refcnt);
-                        spin_unlock(&__get_cpu_var(ip_vs_conn_tab_lock));
+                        ++cp->refcnt;
+                        //spin_unlock(&__get_cpu_var(ip_vs_conn_tab_lock));
                         return cp;
                 }
         }
 
 out:
-        spin_unlock(&__get_cpu_var(ip_vs_conn_tab_lock));
+        //spin_unlock(&__get_cpu_var(ip_vs_conn_tab_lock));
 
         return NULL;
 }
@@ -348,10 +346,11 @@ struct ip_vs_conn *ip_vs_conn_get
 
         cp = __ip_vs_conn_get(af, protocol, s_addr, s_port, d_addr, d_port,
                               res_dir);
+        /*
         if (!cp && atomic_read(&ip_vs_conn_no_cport_cnt))
                 cp = __ip_vs_conn_get(af, protocol, s_addr, 0, d_addr, d_port,
                                       res_dir);
-
+        */
         IP_VS_DBG_BUF(9, "lookup %s %s:%d->%s:%d %s cpu%d\n",
                       ip_vs_proto_name(protocol),
                       IP_VS_DBG_ADDR(af, s_addr), ntohs(s_port),
@@ -374,7 +373,7 @@ struct ip_vs_conn *ip_vs_ct_in_get
         hash = ip_vs_conn_hashkey(af, s_addr, s_port, d_addr, d_port);
         this_cpu_conn_tab = __get_cpu_var(ip_vs_conn_tab_percpu);
 
-        spin_lock(&__get_cpu_var(ip_vs_conn_tab_lock));
+        //spin_lock(&__get_cpu_var(ip_vs_conn_tab_lock));
 
         list_for_each_entry(cidx, &this_cpu_conn_tab[hash], c_list) {
                 //cp = cidx->cp;
@@ -390,14 +389,14 @@ struct ip_vs_conn *ip_vs_ct_in_get
                     cp->flags & IP_VS_CONN_F_TEMPLATE &&
                     protocol == cidx->protocol) {
                         /* HIT */
-                        atomic_inc(&cp->refcnt);
+                        ++cp->refcnt;
                         goto out;
                 }
         }
         cp = NULL;
 
       out:
-        spin_unlock(&__get_cpu_var(ip_vs_conn_tab_lock));
+        //spin_unlock(&__get_cpu_var(ip_vs_conn_tab_lock));
 
         IP_VS_DBG_BUF(9, "template lookup %s %s:%d->%s:%d %s\n",
                       ip_vs_proto_name(protocol),
@@ -569,7 +568,7 @@ ip_vs_bind_dest(struct ip_vs_conn *cp, struct ip_vs_dest *dest)
                       IP_VS_DBG_ADDR(cp->af, &cp->vaddr), ntohs(cp->vport),
                       IP_VS_DBG_ADDR(cp->af, &cp->daddr), ntohs(cp->dport),
                       ip_vs_fwd_tag(cp), cp->state,
-                      cp->flags, atomic_read(&cp->refcnt),
+                      cp->flags, cp->refcnt,
                       atomic_read(&dest->refcnt));
 
         /* Update the connection counters */
@@ -630,7 +629,7 @@ static inline void ip_vs_unbind_dest(struct ip_vs_conn *cp)
                       IP_VS_DBG_ADDR(cp->af, &cp->laddr), ntohs(cp->lport),
                       IP_VS_DBG_ADDR(cp->af, &cp->daddr), ntohs(cp->dport),
                       ip_vs_fwd_tag(cp), cp->state,
-                      cp->flags, atomic_read(&cp->refcnt),
+                      cp->flags, cp->refcnt,
                       atomic_read(&dest->refcnt),
                       cp->cpuid);
 
@@ -865,7 +864,7 @@ static inline int ip_vs_hbind_laddr(struct ip_vs_conn *cp)
                     ip_vs_conn_hashkey(cp->af, &cp->daddr, cp->dport,
                                        &cp->laddr, cp->lport);
                 /* lock the conntab of the current cpu */
-                spin_lock(&per_cpu(ip_vs_conn_tab_lock, cpu));
+                //spin_lock(&per_cpu(ip_vs_conn_tab_lock, cpu));
 
                 /*
                  * check local address and port is valid 
@@ -895,13 +894,13 @@ static inline int ip_vs_hbind_laddr(struct ip_vs_conn *cp)
                                 cp->local = NULL;
                         /* hashed */
                         __ip_vs_conn_hash(cp, ihash, ohash);
-                        spin_unlock(&per_cpu(ip_vs_conn_tab_lock, cpu));
+                        //spin_unlock(&per_cpu(ip_vs_conn_tab_lock, cpu));
                         if (local != &snat_local)
                                 atomic_inc(&local->conn_counts);
                         ret = 1;
                         goto out;
                 }
-                spin_unlock(&per_cpu(ip_vs_conn_tab_lock, cpu));
+                //spin_unlock(&per_cpu(ip_vs_conn_tab_lock, cpu));
         }
 
         if (ret == 0) {
@@ -933,7 +932,7 @@ static inline void ip_vs_unbind_laddr(struct ip_vs_conn *cp)
                       IP_VS_DBG_ADDR(cp->af, &cp->laddr), ntohs(cp->lport),
                       IP_VS_DBG_ADDR(cp->af, &cp->daddr), ntohs(cp->dport),
                       ip_vs_fwd_tag(cp), cp->state,
-                      cp->flags, atomic_read(&cp->refcnt),
+                      cp->flags, cp->refcnt,
                       atomic_read(&local->refcnt), cp->cpuid);
 
         /* Update the connection counters */
@@ -991,7 +990,7 @@ int ip_vs_check_template(struct ip_vs_conn *ct)
                  * Simply decrease the refcnt of the template,
                  * don't restart its timer.
                  */
-                atomic_dec(&ct->refcnt);
+                --ct->refcnt;
                 return 0;
         }
         return 1;
@@ -1053,7 +1052,7 @@ static void ip_vs_conn_expire(void *data)
                 cp->timeout = 60 * HZ;
         }
         
-        atomic_inc(&cp->refcnt);
+        ++cp->refcnt;
         cpu = cp->cpuid;
         if(unlikely(cpu != (uint32_t)smp_processor_id())) {
                 IP_VS_ERR_RL("timer is migrates form cpu%d to cpu%d\n",
@@ -1100,7 +1099,7 @@ static void ip_vs_conn_expire(void *data)
         /*
          *      refcnt==1 implies I'm the only one referrer
          */
-        if (likely(atomic_read(&cp->refcnt) == 1)) {
+        if (likely(cp->refcnt == 1)) {
                 /* delete the timer if it is activated by other users */
                 ofp_vs_del_timer(&cp->timer); 
 
@@ -1144,7 +1143,7 @@ static void ip_vs_conn_expire(void *data)
 
       expire_later:
         IP_VS_DBG(7, "delayed: conn->refcnt-1=%d conn->n_control=%d\n",
-                  atomic_read(&cp->refcnt) - 1, atomic_read(&cp->n_control));
+                  cp->refcnt - 1, atomic_read(&cp->n_control));
 
         ip_vs_conn_put(cp);
         
@@ -1248,7 +1247,7 @@ struct ip_vs_conn *ip_vs_conn_new(int af, int proto,
          * it in the table, so that other thread run ip_vs_random_dropentry
          * but cannot drop this entry.
          */
-        atomic_set(&cp->refcnt, 1);
+        cp->refcnt = 1;
 
         atomic_set(&cp->n_control, 0);
         atomic_set(&cp->in_pkts, 0);
@@ -1558,7 +1557,7 @@ static void ip_vs_conn_flush(void)
                         /*
                          *  Lock is actually needed in this loop.
                          */
-                        spin_lock_bh(&per_cpu(ip_vs_conn_tab_lock, cpu));
+                        //spin_lock_bh(&per_cpu(ip_vs_conn_tab_lock, cpu));
 
                         list_for_each_entry(cidx, &ip_vs_conn_tab_per[idx],
                                                                 c_list) {
@@ -1576,7 +1575,7 @@ static void ip_vs_conn_flush(void)
                                         //ip_vs_conn_expire_now(cp->control);
                                 }
                         }
-                        spin_unlock_bh(&per_cpu(ip_vs_conn_tab_lock, cpu));
+                        //spin_unlock_bh(&per_cpu(ip_vs_conn_tab_lock, cpu));
                 }
                 /* the counter may be not 0, because maybe some conn entries
                  *  are run by slow timer handler
@@ -1687,7 +1686,7 @@ int ip_vs_conn_init(void)
                         }
                         return -ENOMEM;
                 }
-                OFP_INFO("%s is created.\n", mempool_name);
+                OFP_INFO("%s size:%d is created.\n", mempool_name, pool_size);
         }
 
         pr_info("Connection hash table configured "

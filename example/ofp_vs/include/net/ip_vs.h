@@ -378,7 +378,7 @@ struct ip_vs_conn {
 	__be16 dport;
 
 	/* counter and timer */
-	atomic_t refcnt;	/* reference count */
+	u32 refcnt;	/* reference count */
 	struct ofp_vs_timer timer;
 	volatile unsigned long timeout;	/* timeout */
 	uint64_t expires;
@@ -843,7 +843,7 @@ extern struct ip_vs_conn *ip_vs_ct_in_get
 /* put back the conn without restarting its timer */
 static inline void __ip_vs_conn_put(struct ip_vs_conn *cp)
 {
-	atomic_dec(&cp->refcnt);
+	--cp->refcnt;
 }
 extern void ip_vs_conn_put(struct ip_vs_conn *cp);
 extern void ip_vs_conn_fill_cport(struct ip_vs_conn *cp, __be16 cport);

@@ -55,7 +55,9 @@ void ofp_vs_mod_timer(struct ofp_vs_timer *timer, uint64_t expires)
 {
         uint32_t cursor;
         struct list_head *timer_list;
-        uint64_t ticks = ofp_timer_ticks(0);
+        //uint64_t ticks = ofp_timer_ticks(0);
+        /* ofp_timer_ticks call lock affect performance */
+        uint64_t ticks = RTE_PER_LCORE(ofp_vs_ticks);
         uint64_t timeout_ticks;
 
         if (expires < ticks) {
