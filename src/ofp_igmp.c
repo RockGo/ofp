@@ -1505,7 +1505,7 @@ out_locked:
 }
 
 enum ofp_return_code
-ofp_igmp_input(odp_packet_t m, int off)
+ofp_igmp_input(odp_packet_t *m, int off)
 {
 	int iphlen;
 	struct ofp_ifnet *ifp;
@@ -1518,11 +1518,11 @@ ofp_igmp_input(odp_packet_t m, int off)
 
 	CTR3(KTR_IGMPV3, "%s: called w/mbuf (%p,%d)", __func__, m, off);
 
-	ifp = odp_packet_user_ptr(m);
+	ifp = odp_packet_user_ptr(*m);
 
 	IGMPSTAT_INC(igps_rcv_total);
 
-	ip = (struct ofp_ip *)odp_packet_l3_ptr(m, NULL);
+	ip = (struct ofp_ip *)odp_packet_l3_ptr(*m, NULL);
 	iphlen = off;
 	igmplen = odp_be_to_cpu_16(ip->ip_len);
 	igmp = (struct igmp *)(((uint8_t *)ip) + iphlen);
@@ -1532,7 +1532,7 @@ ofp_igmp_input(odp_packet_t m, int off)
 	 */
 	if (igmplen < IGMP_MINLEN) {
 		IGMPSTAT_INC(igps_rcv_tooshort);
-		odp_packet_free(m);
+		odp_packet_free(*m);
 		return OFP_PKT_DROP;
 	}
 
@@ -1620,7 +1620,7 @@ ofp_igmp_input(odp_packet_t m, int off)
 					return OFP_PKT_PROCESSED;
 				}
 #endif
-				igmpv3 = (struct igmpv3 *)((uint8_t *)odp_packet_data(m)
+				igmpv3 = (struct igmpv3 *)((uint8_t *)odp_packet_data(*m)
 				    + iphlen);
 				if (igmp_input_v3_query(ifp, ip, igmpv3) != 0) {
 					return OFP_PKT_DROP;
@@ -2656,22 +2656,15 @@ igmp_final_leave(struct ofp_in_multi *inm, struct ofp_igmp_ifinfo *igi)
 
 static int myappend(odp_packet_t *pkt, int size, void *src)
 {
-#if 0 /* THIS CRASHES ! */
-	int off = odp_packet_len(*pkt);
-
-	*pkt = odp_packet_add_data(*pkt, off, size);
-	if (*pkt != ODP_PACKET_INVALID) {
-		odp_packet_copy_from_mem(*pkt, off, size, src);
-		return 1;
-	}
-	return 0;
-#else /* LIMITED FUNCTIONALITY! */
+	/*
+	 * TODO: Use odp_packet_add_data() instead, and handle the
+	 * segmented packets that may result.
+	 */
 	uint8_t *p = odp_packet_push_tail(*pkt, size);
 	if (!p)
 		return 0;
 	memcpy(p, src, size);
 	return 1;
-#endif
 }
 
 #define m_append(_m, _size, _src) myappend(&_m, _size, _src)

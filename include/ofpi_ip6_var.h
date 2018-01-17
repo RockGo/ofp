@@ -64,7 +64,7 @@
 #ifndef _NETINET6_IP6_VAR_H_
 #define _NETINET6_IP6_VAR_H_
 
-#include <odp.h>
+#include <odp_api.h>
 #include "ofpi_in_pcb.h"
 #include "ofpi_in6.h"
 #include "ofpi_vnet.h"
@@ -391,9 +391,9 @@ void	ofp_ip6_init (void);
 void	ofp_ip6_destroy (void);
 #endif
 
-enum ofp_return_code ofp_ip6_input(odp_packet_t, int *, int *);
-enum ofp_return_code ofp_ip6_none_input(odp_packet_t, int *, int *);
-enum ofp_return_code ofp_ip6_unrecognized_hdr_input(odp_packet_t, int *, int *);
+enum ofp_return_code ofp_ip6_input(odp_packet_t *, int *, int *);
+enum ofp_return_code ofp_ip6_none_input(odp_packet_t *, int *, int *);
+enum ofp_return_code ofp_ip6_unrecognized_hdr_input(odp_packet_t *, int *, int *);
 
 #if 0
 #ifdef _KERNEL

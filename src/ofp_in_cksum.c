@@ -6,13 +6,13 @@
  *
  */
 
-#include "odp.h"
+#include <odp_api.h>
 #include "ofpi_in.h"
 #include "ofpi_ip.h"
 #include "ofpi_log.h"
 #include "ofpi_util.h"
 
-uint16_t ofp_cksum_buffer(register uint16_t *addr, register int len)
+uint16_t ofp_cksum_buffer(uint16_t *addr, int len)
 {
 	register int nleft = len;
 	register uint16_t *w = addr;

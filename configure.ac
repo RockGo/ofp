@@ -117,6 +117,7 @@ AC_CONFIG_FILES([
 	scripts/Makefile
 	test/Makefile
 	test/cunit/Makefile
+	test/benchmark/Makefile
 	])
 
 AC_ARG_ENABLE([lto],
@@ -138,7 +139,7 @@ AC_ARG_WITH([odp],
     [# extend the compiler and linker flags according to the path set
      AM_CPPFLAGS="$AM_CPPFLAGS -I$with_odp/include"
      AM_LDFLAGS="$AM_LDFLAGS -L$with_odp/lib"
-     export PKG_CONFIG_PATH=$with_odp/lib/pkgconfig],
+     export PKG_CONFIG_PATH="$with_odp/lib/pkgconfig:$PKG_CONFIG_PATH"],
     [])
 
 # introduce optional configure parameter for odp library name
@@ -148,12 +149,6 @@ AC_ARG_WITH([odp-lib],
 	[odp library name])],
     [ODP_LIB=$withval],
     [])
-
-# add OFP_PLAT_ODP_DPDK define
-if test "${ODP_LIB}" == "odp-dpdk";
-then
-    AM_CFLAGS="$AM_CFLAGS -DOFP_PLAT_ODP_DPDK"
-fi
 
 # introduce optional configure parameter for ofp configuration flavor
 OFP_CONFIG_FLV=default
@@ -206,6 +201,8 @@ LIBS="$ODP_LIBS $ODPHELPER_LIBS $LIBS"
 LDFLAGS=$OLD_LDFLAGS
 CPPFLAGS=$OLD_CPPFLAGS
 
+AM_CPPFLAGS="$AM_CPPFLAGS -DINET"
+
 # Enable/disable OFP_DEBUG
 ofp_debug=no
 AC_ARG_ENABLE([debug],
@@ -224,6 +221,7 @@ AC_ARG_ENABLE([ipv6],
         *) AC_MSG_ERROR([bad value ${enableval} for --enable-ipv6]) ;;
     esac],[ipv6_support=true])
 AM_CONDITIONAL([OFP_IPv6], [test x$ipv6_support = xtrue])
+AM_COND_IF([OFP_IPv6], [AM_CPPFLAGS="$AM_CPPFLAGS -DINET6"])
 
 # Enable/disable Slow Path processing
 AC_ARG_ENABLE([sp],
@@ -234,6 +232,7 @@ AC_ARG_ENABLE([sp],
         *) AC_MSG_ERROR([bad value ${enableval} for --enable-sp]) ;;
     esac],[sp_support=true])
 AM_CONDITIONAL([OFP_SP], [test x$sp_support = xtrue])
+AM_COND_IF([OFP_SP], [AM_CPPFLAGS="$AM_CPPFLAGS -DSP"])
 
 # Enable/disable libCK use
 AC_ARG_ENABLE([libck],
@@ -244,6 +243,7 @@ AC_ARG_ENABLE([libck],
         *) AC_MSG_ERROR([bad value ${enableval} for --enable-libck]) ;;
     esac],[use_ck=false])
 AM_CONDITIONAL([OFP_USE_LIBCK], [test x$use_ck = xtrue])
+AM_COND_IF([OFP_USE_LIBCK], [AM_CPPFLAGS="$AM_CPPFLAGS -DOFP_USE_LIBCK"])
 
 # Enable/disable MTRIE IPv4 use
 AC_ARG_ENABLE([mtrie],
@@ -254,6 +254,30 @@ AC_ARG_ENABLE([mtrie],
         *) AC_MSG_ERROR([bad value ${enableval} for --enable-mtrie]) ;;
     esac],[use_mtrie=true])
 AM_CONDITIONAL([OFP_MTRIE], [test x$use_mtrie = xtrue])
+AM_COND_IF([OFP_MTRIE], [AM_CPPFLAGS="$AM_CPPFLAGS -DMTRIE"])
+
+# Enable/disable libconfig use
+AC_ARG_ENABLE([libconfig],
+    [  --enable-libconfig     Enable/disable use of libconfig],
+    [case "${enableval}" in
+        yes) use_libconfig=true ;;
+        no)  use_libconfig=false ;;
+        *) AC_MSG_ERROR([bad value ${enableval} for --enable-libconfig]) ;;
+    esac],[use_libconfig=true])
+AM_CONDITIONAL([OFP_USE_LIBCONFIG], [test x$use_libconfig = xtrue])
+AM_COND_IF([OFP_USE_LIBCONFIG], [AM_CPPFLAGS="$AM_CPPFLAGS -DOFP_USE_LIBCONFIG"])
+
+
+# Enable/disable CLI use
+AC_ARG_ENABLE([cli],
+    [  --enable-cli         Enable/disable use of ofp cli],
+    [case "${enableval}" in
+        yes) use_cli=true ;;
+        no)  use_cli=false ;;
+        *) AC_MSG_ERROR([bad value ${enableval} for --enable-cli]) ;;
+    esac],[use_cli=true])
+AM_CONDITIONAL([OFP_CLI], [test x$use_cli = xtrue])
+AM_COND_IF([OFP_CLI], [AM_CPPFLAGS="$AM_CPPFLAGS -DCLI"])
 
 
 ##########################################################################
@@ -369,6 +393,32 @@ else
     AC_SEARCH_LIBS([rumpns_rt_inithead],[rumpnet])
     AC_SEARCH_LIBS([rump_init],[rump])
     AC_SEARCH_LIBS([rumpuser_init],[rumpuser])
+fi
+
+##########################################################################
+# libconfig
+##########################################################################
+
+# introduce the optional configure parameter for a non-standard install prefix of libconfig
+AC_ARG_WITH([libconfig],
+    [AS_HELP_STRING([--with-libconfig=prefix],
+	[non-standard path prefix of libconfig install directory])],
+    [LIBCONFIGPATHSET=1],
+    [LIBCONFIGPATHSET=0])
+
+if test x$use_libconfig = xtrue ; then
+   LIBS="-lconfig $LIBS"
+   if test $LIBCONFIGPATHSET = 1 ; then
+      # if optional parameter used, provide paths for compiler and linker
+      AM_CPPFLAGS="$AM_CPPFLAGS -I$with_libconfig/include"
+      AM_LDFLAGS="$AM_LDFLAGS -L$with_libconfig/lib"
+   fi
+
+   AC_CHECK_HEADERS([libconfig.h], [
+      AC_DEFINE(HAVE_LIBCONFIG, [1], [Have libconfig])], [])
+
+   AC_SEARCH_LIBS([config_init],[config],[], [
+      AC_MSG_ERROR([Unable to find libconfig library])])
 fi
 
 ##########################################################################

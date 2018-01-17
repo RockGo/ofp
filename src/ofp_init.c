@@ -15,7 +15,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <odp.h>
+#include <odp_api.h>
+
+#include "ofp_cli.h"
 
 #include "ofpi.h"
 #include "ofpi_sysctl.h"
@@ -27,7 +29,6 @@
 #include "ofpi_rt_lookup.h"
 #include "ofpi_arp.h"
 #include "ofpi_avl.h"
-#include "ofpi_cli.h"
 #include "ofpi_pkt_processing.h"
 #include "ofpi_ifnet.h"
 #include "ofpi_ip.h"
@@ -104,19 +105,177 @@ odp_bool_t *ofp_get_processing_state(void)
 	return &shm->is_running;
 }
 
-void ofp_init_global_param(ofp_global_param_t *params)
+#ifdef OFP_USE_LIBCONFIG
+
+#include <ctype.h>
+#include <libconfig.h>
+
+#define OFP_CONF_FILE_ENV "OFP_CONF_FILE"
+#define STR(x) #x
+
+struct lookup_entry {
+	const char *name;
+	int value;
+};
+
+#define ENTRY(x) { #x, (int)x }
+
+struct lookup_entry lt_pktin_mode[] = {
+	ENTRY(ODP_PKTIN_MODE_DIRECT),
+	ENTRY(ODP_PKTIN_MODE_SCHED),
+	ENTRY(ODP_PKTIN_MODE_QUEUE),
+	ENTRY(ODP_PKTIN_MODE_DISABLED),
+};
+
+struct lookup_entry lt_pktout_mode[] = {
+	ENTRY(ODP_PKTOUT_MODE_DIRECT),
+	ENTRY(ODP_PKTOUT_MODE_QUEUE),
+	ENTRY(ODP_PKTOUT_MODE_TM),
+	ENTRY(ODP_PKTOUT_MODE_DISABLED),
+};
+
+struct lookup_entry lt_sched_sync[] = {
+	ENTRY(ODP_SCHED_SYNC_PARALLEL),
+	ENTRY(ODP_SCHED_SYNC_ATOMIC),
+	ENTRY(ODP_SCHED_SYNC_ORDERED),
+};
+
+struct lookup_entry lt_sched_group[] = {
+	ENTRY(ODP_SCHED_GROUP_ALL),
+	ENTRY(ODP_SCHED_GROUP_WORKER),
+	ENTRY(ODP_SCHED_GROUP_CONTROL),
+};
+
+/*
+ * Based on a string, lookup a value in a struct lookup_entry
+ * array. Return the value from the entry or -1 if not found.
+ */
+static int lookup(const struct lookup_entry *table, int n, const char *str)
+{
+#define BUF_LEN 32
+	int i, len = strnlen(str, BUF_LEN-1);
+	char ustr[BUF_LEN];
+
+	memcpy(ustr, str, len);
+	ustr[len] = 0;
+
+	for (i = 0; i < len; i++)
+		ustr[i] = toupper(ustr[i]);
+
+	for (i = 0; i < n; i++)
+		if (strstr(table[i].name, ustr))
+			return table[i].value;
+
+	return -1;
+}
+
+static void read_conf_file(ofp_global_param_t *params, const char *filename)
+{
+	config_t conf;
+	config_setting_t *setting;
+	int length;
+	const char *str;
+	int i;
+
+	if (!filename) {
+		filename = OFP_DEFAULT_CONF_FILE;
+		char *filename_env = getenv(OFP_CONF_FILE_ENV);
+		if (filename_env) filename = filename_env;
+	}
+
+	if (!*filename) return;
+
+	config_init(&conf);
+	OFP_DBG("Using configuration file: %s\n", filename);
+
+	if (!config_read_file(&conf, filename)) {
+		OFP_ERR("%s(%d): %s\n", config_error_file(&conf),
+			config_error_line(&conf), config_error_text(&conf));
+		goto done;
+	}
+
+	setting = config_lookup(&conf, "ofp_global_param.if_names");
+
+	if (setting && (length = config_setting_length(setting)) > 0) {
+		params->if_count = 0;
+		params->if_names = malloc(length * sizeof(char *));
+		while (params->if_count < length) {
+			/* These strings are never freed. */
+			params->if_names[params->if_count] =
+				strndup(config_setting_get_string_elem(setting, params->if_count), OFP_IFNAMSIZ);
+			params->if_count++;
+		}
+	}
+
+#define GET_CONF_STR(p)							\
+	if (config_lookup_string(&conf, "ofp_global_param." STR(p), &str)) { \
+		i = lookup(lt_ ## p, sizeof(lt_ ## p) / sizeof(lt_ ## p[0]), str); \
+		if (i >= 0) params->p = i;				\
+	}
+
+	GET_CONF_STR(pktin_mode);
+	GET_CONF_STR(pktout_mode);
+	GET_CONF_STR(sched_sync);
+	GET_CONF_STR(sched_group);
+
+#define GET_CONF_INT(type, p)						\
+	if (config_lookup_ ## type(&conf, "ofp_global_param." STR(p), &i)) \
+		params->p = i;
+
+	GET_CONF_INT(int, linux_core_id);
+	GET_CONF_INT(bool, enable_nl_thread);
+	GET_CONF_INT(int, arp.entries);
+	GET_CONF_INT(int, arp.hash_bits);
+	GET_CONF_INT(int, arp.entry_timeout);
+	GET_CONF_INT(int, arp.saved_pkt_timeout);
+	GET_CONF_INT(bool, arp.check_interface);
+	GET_CONF_INT(int, evt_rx_burst_size);
+	GET_CONF_INT(int, pkt_tx_burst_size);
+	GET_CONF_INT(int, pcb_tcp_max);
+	GET_CONF_INT(int, pkt_pool.nb_pkts);
+	GET_CONF_INT(int, pkt_pool.buffer_size);
+	GET_CONF_INT(int, num_vlan);
+	GET_CONF_INT(int, mtrie.routes);
+	GET_CONF_INT(int, mtrie.table8_nodes);
+	GET_CONF_INT(int, num_vrf);
+
+done:
+	config_destroy(&conf);
+}
+
+#else
+#define read_conf_file(params, filename) ((void)filename)
+#endif
+
+void ofp_init_global_param_from_file(ofp_global_param_t *params, const char *filename)
 {
 	memset(params, 0, sizeof(*params));
+	params->pktin_mode = ODP_PKTIN_MODE_SCHED;
+	params->pktout_mode = ODP_PKTIN_MODE_DIRECT;
+	params->sched_sync = ODP_SCHED_SYNC_ATOMIC;
 	params->sched_group = ODP_SCHED_GROUP_ALL;
 #ifdef SP
 	params->enable_nl_thread = 1;
 #endif /* SP */
-	params->arp.entry_timeout = ARP_ENTRY_TIMEOUT;
+	params->arp.entries = OFP_ARP_ENTRIES;
+	params->arp.hash_bits = OFP_ARP_HASH_BITS;
+	params->arp.entry_timeout = OFP_ARP_ENTRY_TIMEOUT;
+	params->arp.saved_pkt_timeout = OFP_ARP_SAVED_PKT_TIMEOUT;
 	params->evt_rx_burst_size = OFP_EVT_RX_BURST_SIZE;
 	params->pcb_tcp_max = OFP_NUM_PCB_TCP_MAX;
 	params->pkt_pool.nb_pkts = SHM_PKT_POOL_NB_PKTS;
 	params->pkt_pool.buffer_size = SHM_PKT_POOL_BUFFER_SIZE;
 	params->pkt_tx_burst_size = OFP_PKT_TX_BURST_SIZE;
+	params->num_vlan = OFP_NUM_VLAN;
+	params->mtrie.routes = OFP_ROUTES;
+	params->mtrie.table8_nodes = OFP_MTRIE_TABLE8_NODES;
+	params->num_vrf = OFP_NUM_VRF;
+	read_conf_file(params, filename);
+}
+
+void ofp_init_global_param(ofp_global_param_t *params)
+{
+	ofp_init_global_param_from_file(params, NULL);
 }
 
 static void ofp_init_prepare(void)
@@ -190,8 +349,7 @@ static int ofp_init_pre_global(ofp_global_param_t *params)
 
 	HANDLE_ERROR(ofp_hook_init_global(params->pkt_hook));
 
-	HANDLE_ERROR(ofp_arp_init_global(ARP_AGE_INTERVAL,
-			params->arp.entry_timeout));
+	HANDLE_ERROR(ofp_arp_init_global());
 
 	HANDLE_ERROR(ofp_route_init_global());
 
@@ -248,12 +406,12 @@ int ofp_init_global(odp_instance_t instance, ofp_global_param_t *params)
 
 	/* Create interfaces */
 	odp_pktio_param_init(&pktio_param);
-	pktio_param.in_mode = params->burst_recv_mode ? ODP_PKTIN_MODE_DIRECT :
-						ODP_PKTIN_MODE_SCHED;
-	pktio_param.out_mode = ODP_PKTOUT_MODE_DIRECT;
+	pktio_param.in_mode = params->pktin_mode;
+	pktio_param.out_mode = params->pktout_mode;
 
 	ofp_pktin_queue_param_init(&pktin_param, pktio_param.in_mode,
-			params->sched_group);
+				   params->sched_sync,
+				   params->sched_group);
 
 	for (i = 0; i < params->if_count; ++i)
 		HANDLE_ERROR(ofp_ifnet_create(instance, params->if_names[i],
@@ -317,9 +475,10 @@ int ofp_term_global(void)
 	struct ofp_ifnet *ifnet;
 
 	ofp_stop_processing();
-
+#ifdef CLI
 	/* Terminate CLI thread*/
 	CHECK_ERROR(ofp_stop_cli_thread(), rc);
+#endif
 
 #ifdef SP
 	/* Terminate Netlink thread*/
@@ -381,11 +540,12 @@ int ofp_term_global(void)
 			ifnet->out_queue_queue[j] = ODP_QUEUE_INVALID;
 
 		if (ifnet->pktio != ODP_PKTIO_INVALID) {
-			odp_queue_t in_queue[OFP_PKTIN_QUEUE_MAX];
+			int num_queues = odp_pktin_event_queue(ifnet->pktio, NULL, 0);
+			odp_queue_t in_queue[num_queues];
 			int num_in_queue, idx;
 
 			num_in_queue = odp_pktin_event_queue(ifnet->pktio,
-					in_queue, OFP_PKTIN_QUEUE_MAX);
+					in_queue, num_queues);
 			for (idx = 0; idx < num_in_queue; idx++)
 				cleanup_pkt_queue(in_queue[idx]);
 
@@ -510,22 +670,8 @@ static void schedule_shutdown(void)
 				ofp_timer_evt_cleanup(evt);
 				break;
 			}
-		case ODP_EVENT_PACKET:
-			{
-				odp_packet_free(odp_packet_from_event(evt));
-				break;
-			}
-		case ODP_EVENT_BUFFER:
-			{
-				odp_buffer_free(odp_buffer_from_event(evt));
-				break;
-			}
-		case ODP_EVENT_CRYPTO_COMPL:
-			{
-				odp_crypto_compl_free(
-					odp_crypto_compl_from_event(evt));
-				break;
-			}
+		default:
+			odp_event_free(evt);
 		}
 	}
 

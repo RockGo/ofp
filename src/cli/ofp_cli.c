@@ -20,7 +20,9 @@
 #include <time.h>
 #include <errno.h>
 
-#include <odp.h>
+#include <odp_api.h>
+
+#include "ofp_errno.h"
 
 #include "ofpi.h"
 #include "ofpi_pkt_processing.h"
@@ -29,6 +31,7 @@
 #include "ofpi_util.h"
 #include "ofpi_portconf.h"
 
+#ifdef CLI
 /*
  * Only core 0 runs this.
  */
@@ -1131,7 +1134,7 @@ static void cli_init_commands(void)
 	}
 }
 
-static void cli_process_conf_file(char *config_file_name)
+static void cli_process_file(char *file_name)
 {
 	FILE *f;
 	struct cli_conn conn;
@@ -1141,17 +1144,17 @@ static void cli_process_conf_file(char *config_file_name)
 	conn.fd = 1; /* stdout */
 	conn.status = CONNECTION_ON; /* no prompt */
 
-	if (config_file_name != NULL) {
-		f = fopen(config_file_name, "r");
+	if (file_name != NULL) {
+		f = fopen(file_name, "r");
 		if (!f) {
-			OFP_ERR("OFP configuration file not found.\n");
+			OFP_ERR("OFP CLI file not found.\n");
 			return;
 		}
 
 		while (fgets(conn.inbuf, sizeof(conn.inbuf), f)) {
 			if (conn.inbuf[0] == '#' || conn.inbuf[0] <= ' ')
 				continue;
-			ofp_sendf(conn.fd, "CONFIGURATION LINE: %s\n",
+			ofp_sendf(conn.fd, "CLI: %s\n",
 				conn.inbuf);
 			parse(&conn, 0);
 		}
@@ -1159,7 +1162,7 @@ static void cli_process_conf_file(char *config_file_name)
 		fclose(f);
 	}
 	else {
-		OFP_DBG("OFP configuration file not set.\n");
+		OFP_DBG("OFP CLI file not set.\n");
 	}
 }
 
@@ -1558,8 +1561,6 @@ static void cli_sa_accept(int fd)
 
 #define OFP_SERVER_PORT 2345
 
-#define UFP_SERVER_PORT 2345
-
 static int cli_serv_fd = -1, cli_tmp_fd = -1;
 
 /** CLI server thread
@@ -1574,13 +1575,13 @@ static void *cli_server(void *arg)
 	struct sockaddr_in my_addr, caller;
 	int reuse = 1;
 	fd_set read_fd, fds;
-	char *config_file_name;
+	char *file_name;
 	struct ofp_global_config_mem *ofp_global_cfg = NULL;
 	int select_nfds;
 
 	close_cli = 0;
 
-	config_file_name = (char *)arg;
+	file_name = (char *)arg;
 
 	OFP_INFO("CLI server started on core %i\n", odp_cpu_id());
 
@@ -1597,7 +1598,7 @@ static void *cli_server(void *arg)
 
 	cli_init_commands();
 
-	cli_process_conf_file(config_file_name);
+	cli_process_file(file_name);
 
 	cli_serv_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (cli_serv_fd < 0) {
@@ -1611,8 +1612,8 @@ static void *cli_server(void *arg)
 
 	memset(&my_addr, 0, sizeof(my_addr));
 	my_addr.sin_family = AF_INET;
-	my_addr.sin_port = htons(OFP_SERVER_PORT);
-	my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	my_addr.sin_port = odp_cpu_to_be_16(OFP_SERVER_PORT);
+	my_addr.sin_addr.s_addr = odp_cpu_to_be_32(INADDR_ANY);
 
 	if (bind(cli_serv_fd, (struct sockaddr *)&my_addr,
 		 sizeof(struct sockaddr)) < 0) {
@@ -1693,15 +1694,7 @@ static void *cli_server(void *arg)
 	return NULL;
 }
 
-/** Start CLI server thread
- *  To be called by Application code to start the CLI server if needed;
- *
- * @param core_id int
- * @retval 0 on success
- * @retval -1 on failure
- *
- */
-int ofp_start_cli_thread(odp_instance_t instance, int core_id, char *conf_file)
+int ofp_start_cli_thread(odp_instance_t instance, int core_id, char *cli_file)
 {
 	odp_cpumask_t cpumask;
 	struct ofp_global_config_mem *ofp_global_cfg;
@@ -1720,7 +1713,7 @@ int ofp_start_cli_thread(odp_instance_t instance, int core_id, char *conf_file)
 	odp_cpumask_set(&cpumask, core_id);
 
 	thr_params.start = cli_server;
-	thr_params.arg = conf_file;
+	thr_params.arg = cli_file;
 	thr_params.thr_type = ODP_THREAD_CONTROL;
 	thr_params.instance = instance;
 
@@ -1754,5 +1747,23 @@ int ofp_stop_cli_thread(void)
 
 	return 0;
 }
+
+#else
+
+int ofp_start_cli_thread(odp_instance_t instance, int core_id, char *cli_file)
+{
+	(void) instance;
+	(void) core_id;
+	(void) cli_file;
+
+	return OFP_ENOTSUP;
+}
+int ofp_stop_cli_thread(void)
+{
+	return OFP_ENOTSUP;
+}
+
+#endif
+
 
 /*end*/

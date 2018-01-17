@@ -15,10 +15,13 @@
  * during ofp_init_global(). One can specify no interface in ofp_init_global
  * and open one by one using this functionality.
  *
+ * @param instance ODP instance
  * @param if_name Interface name to open
  * @param pktio_param Specify packet access mode for this
  *        interface
  * @param pktin_param Specify packet input queue parameters for
+ *        this interface
+ * @param pktout_param Specify packet output queue parameters for
  *        this interface
  *
  * @retval 0 on success
@@ -30,7 +33,7 @@
 #ifndef __OFP_IFNET_H__
 #define __OFP_IFNET_H__
 
-#include <odp.h>
+#include <odp_api.h>
 
 #if __GNUC__ >= 4
 #pragma GCC visibility push(default)

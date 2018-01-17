@@ -8,7 +8,7 @@
 #ifndef __OFP_HOOK_H__
 #define __OFP_HOOK_H__
 
-#include <odp.h>
+#include <odp_api.h>
 
 #if __GNUC__ >= 4
 #pragma GCC visibility push(default)
@@ -39,8 +39,8 @@ typedef enum ofp_return_code (*ofp_pkt_hook)(odp_packet_t pkt, void *arg);
  * A function callback is called by OFP when a specific processing phase(handle)
  * is found. One can register any ofp_pkt_hook() function callback for any
  * handle.
- * The registration is done with ofp_global_init() by assigning function
- * callbacks on #pkt_hook[#ofp_hook_id]
+ * The registration is done with ofp_init_global() by assigning function
+ * callbacks on #ofp_global_param_t.pkt_hook[#ofp_hook_id]
  */
 enum ofp_hook_id {
 	OFP_HOOK_PREROUTING = 0,

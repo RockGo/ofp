@@ -88,7 +88,7 @@ __FBSDID("$FreeBSD: release/9.1.0/sys/netinet6/udp6_usrreq.c 238247 2012-07-08 1
 #endif
 
 
-#include <odp.h>
+#include <odp_api.h>
 #include "api/ofp_types.h"
 #include "api/ofp_errno.h"
 #include "ofpi_socket.h"
@@ -185,7 +185,7 @@ udp6_append(struct inpcb *inp, odp_packet_t pkt, int off,
 }
 
 enum ofp_return_code
-ofp_udp6_input(odp_packet_t pkt, int *offp, int *nxt)
+ofp_udp6_input(odp_packet_t *pkt, int *offp, int *nxt)
 {
 	int off = *offp;
 	int protocol = IS_IPV6_UDP;
@@ -207,20 +207,20 @@ ofp_udp6_input(odp_packet_t pkt, int *offp, int *nxt)
 #endif
 	*nxt = OFP_IPPROTO_DONE;
 
-	OFP_HOOK(OFP_HOOK_LOCAL, pkt, &protocol, &res);
+	OFP_HOOK(OFP_HOOK_LOCAL, *pkt, &protocol, &res);
 	if (res != OFP_PKT_CONTINUE)
 		return res;
 
-	OFP_HOOK(OFP_HOOK_LOCAL_UDPv6, pkt, NULL, &res);
+	OFP_HOOK(OFP_HOOK_LOCAL_UDPv6, *pkt, NULL, &res);
 	if (res != OFP_PKT_CONTINUE)
 		return res;
 
-	ifp = odp_packet_user_ptr(pkt);
-	ip6 = (struct ofp_ip6_hdr *)odp_packet_l3_ptr(pkt, NULL);
-	if (odp_packet_len(pkt) < off + sizeof(struct ofp_udphdr))
+	ifp = odp_packet_user_ptr(*pkt);
+	ip6 = (struct ofp_ip6_hdr *)odp_packet_l3_ptr(*pkt, NULL);
+	if (odp_packet_len(*pkt) < off + sizeof(struct ofp_udphdr))
 		return OFP_PKT_DROP;
 
-	odp_packet_l4_offset_set(pkt, odp_packet_l3_offset(pkt) + off);
+	odp_packet_l4_offset_set(*pkt, odp_packet_l3_offset(*pkt) + off);
 
 	uh = (struct ofp_udphdr *)((uint8_t *)ip6 + off);
 
@@ -248,7 +248,7 @@ ofp_udp6_input(odp_packet_t pkt, int *offp, int *nxt)
 		goto badunlocked;
 	}
 
-	uh_sum = ofp_in6_cksum(pkt, OFP_IPPROTO_UDP, off, ulen);
+	uh_sum = ofp_in6_cksum(*pkt, OFP_IPPROTO_UDP, off, ulen);
 	if (uh_sum != 0) {
 		UDPSTAT_INC(udps_badsum);
 		goto badunlocked;
@@ -256,7 +256,7 @@ ofp_udp6_input(odp_packet_t pkt, int *offp, int *nxt)
 	/*
 	 * Construct sockaddr format source address.
 	 */
-	ofp_init_sin6(&fromsa, pkt);
+	ofp_init_sin6(&fromsa, *pkt);
 	fromsa.sin6_port = uh->uh_sport;
 
 #if 0
@@ -429,7 +429,7 @@ ofp_udp6_input(odp_packet_t pkt, int *offp, int *nxt)
 			 */
 			inp = in6_pcblookup(&V_udbinfo, &ip6->ip6_src,
 			    uh->uh_sport, &next_hop6->sin6_addr,
-			    next_hop6->sin6_port ? htons(next_hop6->sin6_port) :
+			    next_hop6->sin6_port ? odp_cpu_to_be_16(next_hop6->sin6_port) :
 			    uh->uh_dport, INPLOOKUP_WILDCARD |
 			    INPLOOKUP_RLOCKPCB, m->m_pkthdr.rcvif);
 		}
@@ -485,13 +485,13 @@ ofp_udp6_input(odp_packet_t pkt, int *offp, int *nxt)
 
 	up = intoudpcb(inp);
 	if (up->u_tun_func == NULL) {
-		udp6_append(inp, pkt, off, &fromsa);
+		udp6_append(inp, *pkt, off, &fromsa);
 	} else {
 		/*
 		 * Engage the tunneling protocol.
 		 */
 
-		(*up->u_tun_func)(pkt, off, inp);
+		(*up->u_tun_func)(*pkt, off, inp);
 	}
 
 	INP_RUNLOCK(inp);
@@ -833,9 +833,11 @@ udp6_output(struct inpcb *inp, odp_packet_t m, struct ofp_sockaddr *addr6,
 		error = ip6_output(m, optp, NULL, flags, inp->in6p_moptions,
 		    NULL, inp);
 #else
-		if (ofp_ip6_output(m, NULL) ==  OFP_PKT_DROP)
+		if (ofp_ip6_output(m, NULL) ==  OFP_PKT_DROP) {
+			OFP_WARN("packet dropped, returning OFP_EIO");
+			odp_packet_free(m);
 			error = OFP_EIO;
-		else
+		} else
 			error = 0;
 #endif
 		break;

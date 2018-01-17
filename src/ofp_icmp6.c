@@ -416,7 +416,7 @@ ofp_icmp6_error(odp_packet_t m, int type, int code, int param)
  * Process a received ICMP6 message.
  */
 enum ofp_return_code
-ofp_icmp6_input(odp_packet_t m, int *offp, int *nxt)
+ofp_icmp6_input(odp_packet_t *m, int *offp, int *nxt)
 {
 	/*struct ofp_ether_header *eth;*/
 	struct ofp_ip6_hdr *ip6;
@@ -428,11 +428,11 @@ ofp_icmp6_input(odp_packet_t m, int *offp, int *nxt)
 	struct ofp_ifnet *ifp;
 
 	*nxt = OFP_IPPROTO_DONE;
-	ifp = odp_packet_user_ptr(m);
+	ifp = odp_packet_user_ptr(*m);
 	(void)ifp;
 	/*eth = (struct ofp_ether_header *) odp_packet_l2_ptr(m, NULL);*/
 
-	OFP_IP6_EXTHDR_CHECK(m, off, sizeof(struct ofp_icmp6_hdr),
+	OFP_IP6_EXTHDR_CHECK(*m, off, sizeof(struct ofp_icmp6_hdr),
 		OFP_PKT_DROP);
 
 	/*
@@ -440,7 +440,7 @@ ofp_icmp6_input(odp_packet_t m, int *offp, int *nxt)
 	 * that not corrupted and of at least minimum length
 	 */
 
-	ip6 = (struct ofp_ip6_hdr *)odp_packet_l3_ptr(m, NULL);
+	ip6 = (struct ofp_ip6_hdr *)odp_packet_l3_ptr(*m, NULL);
 	ip6len = sizeof(struct ofp_ip6_hdr) +
 		odp_be_to_cpu_16(ip6->ofp_ip6_plen);
 	(void)ip6len;
@@ -465,7 +465,7 @@ ofp_icmp6_input(odp_packet_t m, int *offp, int *nxt)
 	 * calculate the checksum
 	 */
 	icmp6 = (struct ofp_icmp6_hdr *)((uint8_t *)ip6 + *offp);
-	icmp6len = odp_packet_len(m)  - odp_packet_l3_offset(m) - off;
+	icmp6len = odp_packet_len(*m)  - odp_packet_l3_offset(*m) - off;
 	if (icmp6len < sizeof(struct ofp_icmp6_hdr)) {
 		/*ICMP6STAT_INC(icp6s_tooshort);*/
 		goto freeit;
@@ -473,7 +473,7 @@ ofp_icmp6_input(odp_packet_t m, int *offp, int *nxt)
 
 	code = icmp6->icmp6_code;
 
-	sum = ofp_in6_cksum(m, OFP_IPPROTO_ICMPV6, off, icmp6len);
+	sum = ofp_in6_cksum(*m, OFP_IPPROTO_ICMPV6, off, icmp6len);
 	if (sum != 0) {
 		OFP_ERR("ICMP6 checksum error(%d|%x) %s",
 		    icmp6->icmp6_type, sum,
@@ -580,7 +580,7 @@ ofp_icmp6_input(odp_packet_t m, int *offp, int *nxt)
 		icmp6->icmp6_type = OFP_ICMP6_ECHO_REPLY;
 		icmp6->icmp6_code = 0;
 
-		ofp_icmp6_reflect(m, off);
+		ofp_icmp6_reflect(*m, off);
 
 		return OFP_PKT_PROCESSED;
 
@@ -791,7 +791,7 @@ ofp_icmp6_input(odp_packet_t m, int *offp, int *nxt)
 			goto badcode;
 		if (icmp6len < sizeof(struct ofp_nd_neighbor_solicit))
 			goto badlen;
-		ofp_nd6_ns_input(m, off, icmp6len);
+		ofp_nd6_ns_input(*m, off, icmp6len);
 #ifndef SP
 		if (icmp6len < (sizeof(struct ofp_nd_neighbor_solicit)  + 8) &&
 			icmp6->ofp_icmp6_data8[20] !=
@@ -802,7 +802,7 @@ ofp_icmp6_input(odp_packet_t m, int *offp, int *nxt)
 			&icmp6->ofp_icmp6_data8[4],
 			&icmp6->ofp_icmp6_data8[22]);
 
-		odp_packet_free(m);
+		odp_packet_free(*m);
 
 		return OFP_PKT_PROCESSED;
 #else
@@ -815,7 +815,7 @@ ofp_icmp6_input(odp_packet_t m, int *offp, int *nxt)
 			goto badcode;
 		if (icmp6len < sizeof(struct ofp_nd_neighbor_advert))
 			goto badlen;
-		ofp_nd6_na_input(m, off, icmp6len);
+		ofp_nd6_na_input(*m, off, icmp6len);
 		break;
 #if 0
 	case ND_REDIRECT:
@@ -867,7 +867,7 @@ ofp_icmp6_input(odp_packet_t m, int *offp, int *nxt)
 	return OFP_PKT_CONTINUE; /* send to SP*/
 
 deliver:
-	if (icmp6_notify_error(m, off, icmp6len, code) != 0)
+	if (icmp6_notify_error(*m, off, icmp6len, code) != 0)
 		goto freeit;
 
 	return OFP_PKT_DROP;
@@ -1058,7 +1058,7 @@ notify:
 		m_addr_changed(m);
 
 		if (icmp6type == ICMP6_PACKET_TOO_BIG) {
-			notifymtu = ntohl(icmp6->icmp6_mtu);
+			notifymtu = odp_be_to_cpu_32(icmp6->icmp6_mtu);
 			ip6cp.ip6c_cmdarg = (void *)&notifymtu;
 			icmp6_mtudisc_update(&ip6cp, 1);	/*XXX*/
 		}
@@ -1084,7 +1084,7 @@ icmp6_mtudisc_update(struct ip6ctlparam *ip6cp, int validated)
 	struct in6_addr *dst = ip6cp->ip6c_finaldst;
 	struct icmp6_hdr *icmp6 = ip6cp->ip6c_icmp6;
 	struct mbuf *m = ip6cp->ip6c_m;	/* will be necessary for scope issue */
-	u_int mtu = ntohl(icmp6->icmp6_mtu);
+	u_int mtu = odp_be_to_cpu_32(icmp6->icmp6_mtu);
 	struct in_conninfo inc;
 
 #if 0
@@ -1217,7 +1217,7 @@ ni6_input(struct mbuf *m, int off)
 	}
 
 	/* validate query Subject field. */
-	qtype = ntohs(ni6->ni_qtype);
+	qtype = odp_be_to_cpu_16(ni6->ni_qtype);
 	subjlen = m->m_pkthdr.len - off - sizeof(struct icmp6_nodeinfo);
 	switch (qtype) {
 	case NI_QTYPE_NOOP:
@@ -1411,9 +1411,9 @@ ni6_input(struct mbuf *m, int off)
 	{
 		uint32_t v;
 		nni6->ni_code = ICMP6_NI_SUCCESS;
-		nni6->ni_flags = htons(0x0000);	/* raw bitmap */
+		nni6->ni_flags = odp_cpu_to_be_16(0x0000);	/* raw bitmap */
 		/* supports NOOP, SUPTYPES, FQDN, and NODEADDR */
-		v = (uint32_t)htonl(0x0000000f);
+		v = (uint32_t)odp_cpu_to_be_32(0x0000000f);
 		bcopy(&v, nni6 + 1, sizeof(uint32_t));
 		break;
 	}
@@ -1831,7 +1831,7 @@ ni6_store_addrs(struct icmp6_nodeinfo *ni6, struct icmp6_nodeinfo *nni6,
 			else {
 				if (ifa6->ia6_lifetime.ia6t_expire >
 				    time_second)
-					ltime = htonl(ifa6->ia6_lifetime.ia6t_expire - time_second);
+					ltime = odp_cpu_to_be_32(ifa6->ia6_lifetime.ia6t_expire - time_second);
 				else
 					ltime = 0;
 			}
@@ -2183,7 +2183,7 @@ icmp6_redirect_input(struct mbuf *m, int off)
 	struct ifnet *ifp;
 	struct ip6_hdr *ip6 = mtod(m, struct ip6_hdr *);
 	struct nd_redirect *nd_rd;
-	int icmp6len = ntohs(ip6->ip6_plen);
+	int icmp6len = odp_be_to_cpu_16(ip6->ip6_plen);
 	char *lladdr = NULL;
 	int lladdrlen = 0;
 	struct rtentry *rt = NULL;
@@ -2638,11 +2638,11 @@ noredhdropt:;
 	in6_clearscope(&nd_rd->nd_rd_target);
 	in6_clearscope(&nd_rd->nd_rd_dst);
 
-	ip6->ip6_plen = htons(m->m_pkthdr.len - sizeof(struct ip6_hdr));
+	ip6->ip6_plen = odp_cpu_to_be_16(m->m_pkthdr.len - sizeof(struct ip6_hdr));
 
 	nd_rd->nd_rd_cksum = 0;
 	nd_rd->nd_rd_cksum = in6_cksum(m, IPPROTO_ICMPV6,
-	    sizeof(*ip6), ntohs(ip6->ip6_plen));
+	    sizeof(*ip6), odp_be_to_cpu_16(ip6->ip6_plen));
 
         if (send_sendso_input_hook != NULL) {
 		mtag = m_tag_get(PACKET_TAG_ND_OUTGOING, sizeof(unsigned short),

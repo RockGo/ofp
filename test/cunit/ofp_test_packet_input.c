@@ -20,7 +20,7 @@
 #include <CUnit/Basic.h>
 #endif
 
-#include <odp.h>
+#include <odp_api.h>
 #include <ofpi.h>
 #include <ofpi_log.h>
 #include <ofpi_portconf.h>
@@ -267,6 +267,7 @@ init_suite(void)
 
 	ofp_init_global_param(&params);
 	params.enable_nl_thread = 0;
+	params.num_vrf = 2;
 	memset(params.pkt_hook, 0, sizeof(params.pkt_hook));
 	params.pkt_hook[OFP_HOOK_LOCAL]    = fastpath_local_hook;
 	params.pkt_hook[OFP_HOOK_LOCAL_IPv4]    = fastpath_local_IPv4_hook;
@@ -512,8 +513,12 @@ test_ofp_packet_input_send_arp(void)
 
 	res = ofp_packet_input(pkt, interface_queue[port],
 		ofp_eth_vlan_processing);
+#ifdef OFP_USE_LIBCK
+	/* Saving pkt not implemented in arp ck */
+	CU_ASSERT_EQUAL(res, OFP_PKT_DROP);
+#else
 	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
-
+#endif
 	res = ofp_send_pending_pkt();
 	CU_ASSERT_EQUAL(res, OFP_PKT_PROCESSED);
 	odp_packet_free(pkt);
