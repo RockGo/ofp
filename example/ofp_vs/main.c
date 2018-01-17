@@ -160,7 +160,7 @@ static void *event_dispatcher(void *arg)
 	//time_queue_cpu = ofp_timer_queue_cpu(cpuid);
 
 	/* PER CORE DISPATCHER */
-	while (*is_running) {
+	while (odp_likely(*is_running)) {
 		if (odp_likely(app_init_params.burst_recv_mode)) {
 			direct_recv(appl_params);
 		}  else {
