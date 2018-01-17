@@ -331,6 +331,7 @@ static inline struct ip_vs_conn *__ip_vs_conn_get
                         //spin_unlock(&__get_cpu_var(ip_vs_conn_tab_lock));
                         return cp;
                 }
+                //rte_prefetch1(cidx->c_list.next);
         }
 
 out:

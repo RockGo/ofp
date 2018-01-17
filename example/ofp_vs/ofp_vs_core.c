@@ -205,7 +205,7 @@ struct ip_vs_conn *ip_vs_schedule(struct ip_vs_service *svc,
 		      IP_VS_DBG_ADDR(svc->af, &cp->vaddr), ntohs(cp->vport),
 		      IP_VS_DBG_ADDR(svc->af, &cp->laddr), ntohs(cp->lport),
 		      IP_VS_DBG_ADDR(svc->af, &cp->daddr), ntohs(cp->dport),
-		      cp->flags, atomic_read(&cp->refcnt), cp->cpuid);
+		      cp->flags, cp->refcnt, cp->cpuid);
 
 	ip_vs_conn_stats(cp, svc);
 	return cp;
