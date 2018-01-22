@@ -964,9 +964,9 @@ tcp_state_transition(struct ip_vs_conn *cp, int direction,
         if (th == NULL)
                 return 0;
 
-        spin_lock(&cp->lock);
+        //spin_lock(&cp->lock);
         set_tcp_state(pp, cp, direction, th);
-        spin_unlock(&cp->lock);
+        //spin_unlock(&cp->lock);
 
         return 1;
 }
