@@ -449,13 +449,13 @@ void ip_vs_conn_put(struct ip_vs_conn *cp)
 void ip_vs_conn_fill_cport(struct ip_vs_conn *cp, __be16 cport)
 {
         if (ip_vs_conn_unhash(cp)) {
-                spin_lock(&cp->lock);
+                //spin_lock(&cp->lock);
                 if (cp->flags & IP_VS_CONN_F_NO_CPORT) {
                         atomic_dec(&ip_vs_conn_no_cport_cnt);
                         cp->flags &= ~IP_VS_CONN_F_NO_CPORT;
                         cp->cport = cport;
                 }
-                spin_unlock(&cp->lock);
+                //spin_unlock(&cp->lock);
 
                 /* hash on new dport */
                 ip_vs_conn_hash(cp);
@@ -1065,7 +1065,7 @@ static void ip_vs_conn_expire(void *data)
          * We just check syn_skb is not NULL, as syn_skb 
          * is stored only if syn-proxy is enabled.
          */
-        spin_lock(&cp->lock);
+        //spin_lock(&cp->lock);
         if (cp->syn_skb != NULL && atomic_read(&cp->syn_retry_max) > 0) {
                 atomic_dec(&cp->syn_retry_max);
                 if (cp->packet_xmit) {
@@ -1075,11 +1075,11 @@ static void ip_vs_conn_expire(void *data)
                 }
                 /* statistics */
                 IP_VS_INC_ESTATS(ip_vs_esmib, SYNPROXY_RS_ERROR);
-                spin_unlock(&cp->lock);
+                //spin_unlock(&cp->lock);
                 IP_VS_DBG(12, "retry send syn to rs\n");
                 goto expire_later;
         }
-        spin_unlock(&cp->lock);
+        //spin_unlock(&cp->lock);
 
         /*
          *      do I control anybody?
@@ -1237,7 +1237,7 @@ struct ip_vs_conn *ip_vs_conn_new(int af, int proto,
                         &cp->daddr, daddr);
         cp->dport = dport;
         cp->flags = flags;
-        spin_lock_init(&cp->lock);
+        //spin_lock_init(&cp->lock);
         cp->in_idx = ci_idx;
         cp->out_idx = co_idx;
         cp->in_nh = NULL;
