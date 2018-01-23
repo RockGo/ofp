@@ -23,7 +23,7 @@
 #include <stdint.h>
 #include "ofpi_util.h"
 #include "ofpi.h"
-#include "odp.h"
+#include <odp_api.h>
 #include "ofpi_rt_lookup.h"
 #include "ofpi_log.h"
 
@@ -38,7 +38,7 @@
 struct ofp_rt_lookup_mem {
 	struct ofp_rtl_node *global_stack[65];
 	struct ofp_rtl_node node_list[NUM_NODES];
-	struct ofp_rtl_node *free_nodes;
+	struct ofp_rtl_tailq free_nodes;
 	int nodes_allocated, max_nodes_allocated;
 
 	struct ofp_rtl6_node *global_stack6[129];
@@ -54,19 +54,25 @@ static __thread struct ofp_rt_lookup_mem *shm;
 
 static void NODEFREE(struct ofp_rtl_node *node)
 {
-	node->left = NULL;
-	node->right = shm->free_nodes;
-	if (shm->free_nodes) shm->free_nodes->left = node;
-	shm->free_nodes = node;
+	node->left = shm->free_nodes.last;
+	node->right = NULL;
+	if (shm->free_nodes.last)
+		shm->free_nodes.last->right = node;
+	else
+		shm->free_nodes.first = node;
+	shm->free_nodes.last = node;
 	shm->nodes_allocated--;
 }
 
 static struct ofp_rtl_node *NODEALLOC(void)
 {
-	struct ofp_rtl_node *p = shm->free_nodes;
-	if (shm->free_nodes) {
-		shm->free_nodes->left = NULL;
-		shm->free_nodes = shm->free_nodes->right;
+	struct ofp_rtl_node *p = shm->free_nodes.first;
+	if (shm->free_nodes.first) {
+		shm->free_nodes.first = shm->free_nodes.first->right;
+		if (shm->free_nodes.first)
+			shm->free_nodes.first->left = NULL;
+		else
+			shm->free_nodes.last = NULL;
 		shm->nodes_allocated++;
 		if (shm->nodes_allocated > shm->max_nodes_allocated)
 			shm->max_nodes_allocated = shm->nodes_allocated;
@@ -142,7 +148,7 @@ ofp_rtl_insert(struct ofp_rtl_tree *tree, uint32_t addr_be,
 	struct ofp_rtl_node  *last = NULL;
 	uint32_t              depth;
 	uint32_t              mask = 0x80000000;
-	uint32_t              addr = (odp_be_to_cpu_32(addr_be)) & ((~0)<<(32-masklen));
+	uint32_t              addr = (odp_be_to_cpu_32(addr_be)) & ((~0U)<<(32-masklen));
 
 	depth = 0;
 	node = tree->root;
@@ -401,8 +407,15 @@ ofp_rtl_insert6(struct ofp_rtl6_tree *tree, uint8_t *addr,
 		bit++;
 	}
 
-	if (node)
-		return &node->data;
+	if (node) {
+		if (node->flags == OFP_RTL_FLAGS_VALID_DATA) {
+			return &node->data;
+		} else {
+			node->flags = OFP_RTL_FLAGS_VALID_DATA;
+			node->data = *data;
+			return NULL;
+		}
+	}
 
 	node = NODEALLOC6();
 	if (!node) {
@@ -646,7 +659,8 @@ int ofp_rt_lookup_init_global(void)
 		shm->node_list[i].right = (i == NUM_NODES - 1) ?
 			NULL : &(shm->node_list[i+1]);
 	}
-	shm->free_nodes = shm->node_list;
+	shm->free_nodes.first = &shm->node_list[0];
+	shm->free_nodes.last = &shm->node_list[NUM_NODES-1];
 
 	for (i = 0; i < NUM_NODES_6; i++) {
 		shm->node_list6[i].left = (i == 0) ?

@@ -35,7 +35,7 @@ typedef struct {
 	int core_start;
 	int if_count;		/**< Number of interfaces to be used */
 	char **if_names;	/**< Array of pointers to interface names */
-	char *conf_file;
+	char *cli_file;
 	char *root_dir;
 	char *laddr;
 	uint16_t lport;
@@ -343,7 +343,6 @@ int main(int argc, char *argv[])
 	ofp_init_global_param(&app_init_params);
 	app_init_params.linux_core_id = linux_sp_core;
 	if (params.mode == EXEC_MODE_SCHEDULER) {
-		app_init_params.burst_recv_mode = 0;
 		app_init_params.if_count = params.if_count;
 		app_init_params.if_names = params.if_names;
 	}
@@ -403,7 +402,7 @@ int main(int argc, char *argv[])
 
 	/* Start CLI */
 	ofp_start_cli_thread(instance, app_init_params.linux_core_id,
-		params.conf_file);
+		params.cli_file);
 
 	sleep(2);
 	/* webserver */
@@ -504,7 +503,7 @@ static void parse_args(int argc, char *argv[], appl_args_t *appl_args)
 		{"core_start", required_argument, NULL, 's'},
 		{"interface", required_argument, NULL, 'i'},	/* return 'i' */
 		{"help", no_argument, NULL, 'h'},		/* return 'h' */
-		{"configuration_file", required_argument,
+		{"cli-file", required_argument,
 			NULL, 'f'},/* return 'f' */
 		{"root", required_argument, NULL, 'r'},	/* return 'r' */
 		{"laddr", required_argument, NULL, 'l'},	/* return 'l' */
@@ -597,13 +596,13 @@ static void parse_args(int argc, char *argv[], appl_args_t *appl_args)
 			}
 			len += 1;	/* add room for '\0' */
 
-			appl_args->conf_file = malloc(len);
-			if (appl_args->conf_file == NULL) {
+			appl_args->cli_file = malloc(len);
+			if (appl_args->cli_file == NULL) {
 				usage(argv[0]);
 				exit(EXIT_FAILURE);
 			}
 
-			strcpy(appl_args->conf_file, optarg);
+			strcpy(appl_args->cli_file, optarg);
 			break;
 		case 'r':
 			len = strlen(optarg);
@@ -727,7 +726,7 @@ static void usage(char *progname)
 		   "  -c, --core_count <number> Core count. Default 0: all above core start\n"
 		   "  -s, --core_start <number> Core start. Default 1.\n"
 		   "  -r, --root <web root folder> Webserver root folder.\n"
-		   "  -f, --configuration_file <file> OFP configuration file.\n"
+		   "  -f, --cli-file <file> OFP CLI file.\n"
 			"\tDefault: "DEFAULT_ROOT_DIRECTORY"\n"
 		   "  -l, --laddr <IPv4 address> IPv4 address were webserver binds.\n"
 			"\tDefault: %s\n"

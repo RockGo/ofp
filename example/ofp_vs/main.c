@@ -101,7 +101,6 @@ static void direct_recv(const appl_args_t *appl_params)
 	int i;
 	int port;
 	int cpu = odp_cpu_id();
-	ofp_pkt_processing_func pkt_func = ofp_eth_vlan_processing;
 
 	for (port = 0; port < appl_params->if_count; port++) {
 		int pkts;
@@ -112,37 +111,27 @@ static void direct_recv(const appl_args_t *appl_params)
 			
 		pkts = odp_pktin_recv(in_queue, pkt_tbl,
 				      OFP_PKT_RX_BURST_SIZE);
-		if (odp_unlikely(pkts) <= 0)
+		if (unlikely(pkts) <= 0)
 			continue;
 
 		for (i = 0; i < pkts; i++) {
 			odp_packet_t pkt = pkt_tbl[i];
 #if 0
-			if (odp_unlikely(odp_packet_has_error(pkt))) {
+			if (unlikely(odp_packet_has_error(pkt))) {
 				OFP_DBG("Dropping packet with error");
 				odp_packet_free(pkt);
 				continue;
 			}
 #endif	
-			ofp_packet_input(pkt, ODP_QUEUE_INVALID, pkt_func);
+			ofp_packet_input(pkt, ODP_QUEUE_INVALID, ofp_eth_vlan_processing);
 		}
 	}
 }
 
 static void *event_dispatcher(void *arg)
 {
-	odp_event_t ev;
-	odp_packet_t pkt;
-	odp_queue_t in_queue;
-	odp_event_t events[OFP_EVT_RX_BURST_SIZE];
-	int event_idx = 0;
-	int event_cnt = 0;
 	uint64_t loop_cnt = 0;
-	//ofp_pkt_processing_func pkt_func = (ofp_pkt_processing_func)arg;
-	ofp_pkt_processing_func pkt_func = ofp_eth_vlan_processing;
 	odp_bool_t *is_running = NULL;
-	//int cpuid = odp_cpu_id();
-	//odp_queue_t time_queue_cpu;
 	const appl_args_t *appl_params = (appl_args_t *)arg; 
 
 	if (ofp_init_local()) {
@@ -157,77 +146,13 @@ static void *event_dispatcher(void *arg)
 		return NULL;
 	}
 
-	//time_queue_cpu = ofp_timer_queue_cpu(cpuid);
-
 	/* PER CORE DISPATCHER */
-	while (odp_likely(*is_running)) {
-		if (odp_likely(app_init_params.burst_recv_mode)) {
-			direct_recv(appl_params);
-		}  else {
-			event_cnt = odp_schedule_multi(&in_queue,
-						 ODP_SCHED_WAIT,
-						 events, OFP_EVT_RX_BURST_SIZE);
-			for (event_idx = 0; event_idx < event_cnt; event_idx++) {
-				ev = events[event_idx];
-
-				if (ev == ODP_EVENT_INVALID)
-					continue;
-
-				if (odp_event_type(ev) == ODP_EVENT_TIMEOUT) {
-					ofp_timer_handle(ev);
-					continue;
-				}
-
-				if (odp_event_type(ev) == ODP_EVENT_PACKET) {
-					pkt = odp_packet_from_event(ev);
-#if 0
-					if (odp_unlikely(odp_packet_has_error(pkt))) {
-						OFP_DBG("Dropping packet with error");
-						odp_packet_free(pkt);
-						continue;
-					}
-#endif
-					ofp_packet_input(pkt, in_queue, pkt_func);
-					continue;
-				}
-
-				OFP_ERR("Unexpected event type: %u", odp_event_type(ev));
-
-				/* Free events by type */
-				if (odp_event_type(ev) == ODP_EVENT_BUFFER) {
-					odp_buffer_free(odp_buffer_from_event(ev));
-					continue;
-				}
-
-				if (odp_event_type(ev) == ODP_EVENT_CRYPTO_COMPL) {
-					odp_crypto_compl_free(
-						odp_crypto_compl_from_event(ev));
-					continue;
-				}
-
-			}
-		}
+	while (likely(*is_running)) {
+		direct_recv(appl_params);
 
 		ofp_send_pending_pkt();
 
-		/* per cpu ofp timer schedule */
-		/*
-		event_cnt = odp_queue_deq_multi(time_queue_cpu,
-					events,
-					OFP_EVT_RX_BURST_SIZE);
-		for (event_idx = 0; event_idx < event_cnt; event_idx++) {
-			ev = events[event_idx];
-			if (odp_event_type(ev) == ODP_EVENT_TIMEOUT) {
-				ofp_timer_handle(ev);
-				continue;
-			} else {
-				OFP_ERR("Unexpected event type: %u",
-					odp_event_type(ev));
-			}
-		}
-		*/
-
-		if ((loop_cnt++)%1024) {
+		if (((loop_cnt++)&4096) == 0) {
 			/* dpdk timer schedule */
 			rte_timer_manage();
 		}
@@ -456,23 +381,15 @@ int main(int argc, char *argv[])
 	ofp_init_global_param(&app_init_params);
 
 	app_init_params.linux_core_id = 0;
-	app_init_params.burst_recv_mode = 1;
 	app_init_params.pkt_hook[OFP_HOOK_PREROUTING] = ofp_vs_in;
 	app_init_params.pkt_hook[OFP_HOOK_FWD_IPv4] = ofp_vs_out;
-
-	
-	if (!app_init_params.burst_recv_mode) {
-		app_init_params.if_count = appl_params.if_count;
-		app_init_params.if_names = appl_params.if_names;
-	}
 
 	if (ofp_init_global(instance, &app_init_params)) {
 		OFP_ERR("Error: OFP global init failed.\n");
 		exit(EXIT_FAILURE);
 	}
 
-	if (app_init_params.burst_recv_mode &&
-	    create_ifnet_and_bind_queues(instance, &appl_params, &cpumask) != 0) {
+	if (create_ifnet_and_bind_queues(instance, &appl_params, &cpumask) != 0) {
 		OFP_ERR("create_ifnet_and_bind_queues failed\n");
 		exit(EXIT_FAILURE);
 	}

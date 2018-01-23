@@ -7,9 +7,12 @@
 #ifndef __OFP_H__
 #define __OFP_H__
 
-#include <odp.h>
-#include <odp/helper/threads.h>
-#include <odp/helper/linux/pthread.h>
+//#include <odp.h>
+//#include <odp/helper/threads.h>
+//#include <odp/helper/linux/pthread.h>
+
+#include <odp_api.h>
+#include <odp/helper/linux.h>
 
 /**
  * @file

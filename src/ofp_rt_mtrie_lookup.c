@@ -16,25 +16,33 @@
 #include <stdint.h>
 #include "ofpi_util.h"
 #include "ofpi.h"
-#include "odp.h"
+#include <odp_api.h>
 #include "ofpi_rt_lookup.h"
 #include "ofpi_log.h"
 #include "ofpi_avl.h"
 
 #define SHM_NAME_RT_LOOKUP_MTRIE	"OfpRtlookupMtrieShMem"
 
-#define NUM_RT_RULES                    ROUTE4_RULE_LIST_SIZE
-#define NUM_NODES			ROUTE4_MTRIE8_TABLE_NODES
-#define NUM_NODES_LARGE			ROUTE4_MTRIE16_TABLE_NODES
+#define NUM_RT_RULES			global_param->mtrie.routes
+#define NUM_NODES			global_param->mtrie.table8_nodes
+#define NUM_NODES_LARGE			global_param->num_vrf
 
 #define NUM_NODES_6			ROUTE6_NODES
+
+#define SMALL_NODE (1<<IPV4_LEVEL)
+#define LARGE_NODE (1<<IPV4_FIRST_LEVEL)
+#define SIZEOF_SMALL_LIST (sizeof(struct ofp_rtl_node)*NUM_NODES*SMALL_NODE)
+#define SIZEOF_LARGE_LIST (sizeof(struct ofp_rtl_node)*NUM_NODES_LARGE*LARGE_NODE)
+#define SHM_SIZE_RT_LOOKUP_MTRIE					\
+	(sizeof(*shm) +	SIZEOF_SMALL_LIST + SIZEOF_LARGE_LIST +		\
+	 sizeof(struct ofp_rt_rule)*NUM_RT_RULES)
 
 /*
  * Shared data
  */
 
 struct ofp_rt_rule_table {
-	struct ofp_rt_rule  rules[NUM_RT_RULES];
+	struct ofp_rt_rule *rules;
 	struct ofp_rt_rule *free_rule;
 	uint32_t rule_allocated;
 	uint32_t max_rule_allocated;
@@ -42,9 +50,9 @@ struct ofp_rt_rule_table {
 };
 
 struct ofp_rt_lookup_mem {
-	struct ofp_rtl_node small_list[NUM_NODES][1<<IPV4_LEVEL];
-	struct ofp_rtl_node large_list[NUM_NODES_LARGE][1<<IPV4_FIRST_LEVEL];
-	struct ofp_rtl_node *free_small;
+	struct ofp_rtl_node *small_list;
+	struct ofp_rtl_node *large_list;
+	struct ofp_rtl_tailq free_small;
 	struct ofp_rtl_node *free_large;
 
 	struct ofp_rt_rule_table rt_rule_table;
@@ -64,8 +72,12 @@ static __thread struct ofp_rt_lookup_mem *shm;
 static void NODEFREE(struct ofp_rtl_node *node)
 {
 	if (node->root == 0) {
-		node->next = shm->free_small;
-		shm->free_small = node;
+		node->next = NULL;
+		if (shm->free_small.last)
+			shm->free_small.last->next = node;
+		else
+			shm->free_small.first = node;
+		shm->free_small.last = node;
 		shm->nodes_allocated--;
 	}
 }
@@ -77,10 +89,12 @@ static struct ofp_rtl_node *NODEALLOC(void)
 	if (!shm)
 		return NULL;
 
-	struct ofp_rtl_node *rtl_node = shm->free_small;
+	struct ofp_rtl_node *rtl_node = shm->free_small.first;
 
 	if (rtl_node) {
-		shm->free_small = rtl_node->next;
+		shm->free_small.first = rtl_node->next;
+		if (shm->free_small.first == NULL)
+			shm->free_small.last = NULL;
 		shm->nodes_allocated++;
 
 		if (shm->nodes_allocated > shm->max_nodes_allocated)
@@ -278,11 +292,11 @@ void ofp_rt_rule_remove(uint16_t vrf, uint32_t addr_be, uint32_t masklen)
 
 	avl_delete(shm->rt_rule_table.rule_tree, rule, NULL);
 
-	rt_rule_free(rule);
-
 	OFP_INFO("ofp_rt_rule_remove removed rule vrf %u %s/%u", rule->u1.s1.vrf,
 		 ofp_print_ip_addr(odp_cpu_to_be_32(rule->u1.s1.addr)),
 		 rule->u1.s1.masklen);
+
+        rt_rule_free(rule);
 }
 
 
@@ -512,7 +526,7 @@ ofp_rtl_remove(struct ofp_rtl_tree *tree, uint32_t addr_be, uint32_t masklen)
 	removing_rule = ofp_rt_rule_search(tree->vrf, addr_be, masklen);
 	if (removing_rule == NULL) {
 		OFP_WARN("ofp_rtl_remove no rule found for vrf %u addr %s masklen %u",
-			 tree->vrf, ofp_print_ip_addr(odp_be_to_cpu_32(addr_be)), masklen);
+			 tree->vrf, ofp_print_ip_addr(addr_be), masklen);
 		return NULL;
 	}
 	data = &removing_rule->u1.s1.data[0];
@@ -528,7 +542,8 @@ ofp_rtl_remove(struct ofp_rtl_tree *tree, uint32_t addr_be, uint32_t masklen)
 				if (node[index].masklen == masklen &&
 				    !memcmp(&node[index].data, data,
 					    sizeof(struct ofp_nh_entry))) {
-					if (node[index].next == NULL)
+					if (node[index].next == NULL &&
+						&node[index] != shm->free_small.last)
 						node[index].masklen = 0;
 					else
 						node[index].masklen = high + 1;
@@ -610,8 +625,15 @@ ofp_rtl_insert6(struct ofp_rtl6_tree *tree, uint8_t *addr,
 		bit++;
 	}
 
-	if (node)
-		return &node->data;
+	if (node) {
+		if (node->flags == OFP_RTL_FLAGS_VALID_DATA) {
+			return &node->data;
+		} else {
+			node->flags = OFP_RTL_FLAGS_VALID_DATA;
+			node->data = *data;
+			return NULL;
+		}
+	}
 
 	node = NODEALLOC6();
 	if (!node) {
@@ -794,7 +816,7 @@ void ofp_print_rt_stat(int fd)
 
 static int ofp_rt_lookup_alloc_shared_memory(void)
 {
-	shm = ofp_shared_memory_alloc(SHM_NAME_RT_LOOKUP_MTRIE, sizeof(*shm));
+	shm = ofp_shared_memory_alloc(SHM_NAME_RT_LOOKUP_MTRIE, SHM_SIZE_RT_LOOKUP_MTRIE);
 	if (shm == NULL) {
 		OFP_ERR("ofp_shared_memory_alloc failed");
 		return -1;
@@ -827,7 +849,7 @@ int ofp_rt_lookup_lookup_shared_memory(void)
 
 void ofp_rt_lookup_init_prepare(void)
 {
-	ofp_shared_memory_prealloc(SHM_NAME_RT_LOOKUP_MTRIE, sizeof(*shm));
+	ofp_shared_memory_prealloc(SHM_NAME_RT_LOOKUP_MTRIE, SHM_SIZE_RT_LOOKUP_MTRIE);
 }
 
 int ofp_rt_lookup_init_global(void)
@@ -836,17 +858,22 @@ int ofp_rt_lookup_init_global(void)
 
 	HANDLE_ERROR(ofp_rt_lookup_alloc_shared_memory());
 
-	memset(shm, 0, sizeof(*shm));
+	memset(shm, 0, SHM_SIZE_RT_LOOKUP_MTRIE);
+
+	shm->small_list = (struct ofp_rtl_node *)((char *)shm+sizeof(*shm));
+	shm->large_list = (struct ofp_rtl_node *)((char *)shm->small_list+SIZEOF_SMALL_LIST);
+	shm->rt_rule_table.rules = (struct ofp_rt_rule *)((char *)shm->large_list+SIZEOF_LARGE_LIST);
 
 	for (i = 0; i < NUM_NODES; i++)
-		shm->small_list[i][0].next = (i == NUM_NODES - 1) ?
-			NULL : &(shm->small_list[i+1][0]);
-	shm->free_small = shm->small_list[0];
+		shm->small_list[i * SMALL_NODE].next = (i == NUM_NODES - 1) ?
+			NULL : &(shm->small_list[(i + 1) * SMALL_NODE]);
+	shm->free_small.first = &shm->small_list[0];
+	shm->free_small.last = &shm->small_list[(NUM_NODES - 1) * SMALL_NODE];
 
 	for (i = 0; i < NUM_NODES_LARGE; i++)
-		shm->large_list[i][0].next = (i == NUM_NODES_LARGE - 1) ?
-			NULL : &(shm->large_list[i+1][0]);
-	shm->free_large = shm->large_list[0];
+		shm->large_list[i * LARGE_NODE].next = (i == NUM_NODES_LARGE - 1) ?
+			NULL : &(shm->large_list[(i + 1) * LARGE_NODE]);
+	shm->free_large = shm->large_list;
 
 	for (i = 0; i < NUM_NODES_6; i++) {
 		shm->node_list6[i].left = (i == 0) ?

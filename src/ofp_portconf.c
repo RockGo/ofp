@@ -175,13 +175,35 @@ static void ofp_vlan_free(struct ofp_ifnet *vlan)
 	odp_rwlock_write_unlock(&vlan_shm->vlan_mtx);
 }
 
+static void print_eth_stats (odp_pktio_stats_t stats, int fd)
+{
+	ofp_sendf(fd,
+		"\tRX: bytes:%lu packets:%lu dropped:%lu errors:%lu unknown:%lu\r\n",
+		stats.in_octets,
+		stats.in_ucast_pkts,
+		stats.in_discards,
+		stats.in_errors,
+		stats.in_unknown_protos);
+
+	ofp_sendf(fd,
+		"\tTX: bytes:%lu packets:%lu dropped:%lu error:%lu\r\n\r\n",
+		stats.out_octets,
+		stats.out_ucast_pkts,
+		stats.out_discards,
+		stats.out_errors);
+}
+
 static int iter_vlan(void *key, void *iter_arg)
 {
 	struct ofp_ifnet *iface = key;
 	char buf[16];
 	int fd = *((int *)iter_arg);
-
+	odp_pktio_stats_t stats;
+	int res;
 	uint32_t mask = ~0;
+
+
+	res = odp_pktio_stats(iface->pktio, &stats);
 
 	mask = odp_cpu_to_be_32(mask << (32 - iface->masklen));
 
@@ -214,9 +236,13 @@ static int iter_vlan(void *key, void *iter_arg)
 			iface->if_mtu);
 
 		ofp_sendf(fd,
-			"	Local: %s	Remote: %s\r\n\r\n",
+			"	Local: %s	Remote: %s\r\n",
 			ofp_print_ip_addr(iface->ip_local),
 			ofp_print_ip_addr(iface->ip_remote));
+		if (res == 0)
+			print_eth_stats(stats, fd);
+		else
+			ofp_sendf(fd, "\r\n");
 		return 0;
 	} else if (iface->port == GRE_PORTS && !iface->vlan) {
 		ofp_sendf(fd, "gre%d\r\n"
@@ -256,6 +282,10 @@ static int iter_vlan(void *key, void *iter_arg)
 			  ofp_port_vlan_to_ifnet_name(iface->physport,
 						      iface->physvlan),
 			  iface->if_mtu);
+		if (res == 0)
+			print_eth_stats(stats, fd);
+		else
+			ofp_sendf(fd, "\r\n");
 		return 0;
 	}
 
@@ -286,6 +316,10 @@ static int iter_vlan(void *key, void *iter_arg)
 			  iface->ip6_prefix,
 #endif /* INET6 */
 			  iface->if_mtu);
+		if (res == 0)
+			print_eth_stats(stats, fd);
+		else
+			ofp_sendf(fd, "\r\n");
 		return 0;
 	}
 
@@ -337,8 +371,12 @@ static int iter_vlan(void *key, void *iter_arg)
 #endif /* INET6 */
 
 		ofp_sendf(fd,
-			"	MTU: %d\r\n\r\n",
+			"	MTU: %d\r\n",
 			iface->if_mtu);
+		if (res == 0)
+			print_eth_stats(stats, fd);
+		else
+			printf("\r\n");
 	} else {
 		ofp_sendf(fd, "%s%d%s\r\n"
 			"	Link not configured\r\n\r\n",
@@ -436,9 +474,10 @@ const char *ofp_config_interface_up_v4(int port, uint16_t vlan, uint16_t vrf,
 #ifdef SP
 	char cmd[200];
 	int ret = 0;
+	uint32_t mask_t;
 #endif /* SP */
 	struct ofp_ifnet *data;
-	uint32_t mask, mask_t;
+	uint32_t mask;
 
 #ifdef SP
 	(void)ret;
@@ -1302,6 +1341,13 @@ void ofp_update_ifindex_lookup_tab(struct ofp_ifnet *ifnet)
 			ifnet->vlan;
 	}
 }
+#else
+struct ofp_ifnet *ofp_get_ifnet_by_linux_ifindex(int ix)
+{
+	(void)ix;
+
+	return NULL;
+}
 #endif /* SP */
 
 struct ofp_ifnet *ofp_get_ifnet_match(uint32_t ip,
@@ -1541,7 +1587,7 @@ static int ofp_portconf_alloc_shared_memory(void)
 }
 
 #define SHM_SIZE_VLAN (sizeof(struct ofp_vlan_mem) + \
-		       sizeof(struct ofp_ifnet) * OFP_NUM_VLAN_MAX)
+		       sizeof(struct ofp_ifnet) * global_param->num_vlan)
 
 static int ofp_vlan_alloc_shared_memory(void)
 {
@@ -1707,8 +1753,8 @@ int ofp_vlan_init_global(void)
 	/* init vlan shared memory */
 	HANDLE_ERROR(ofp_vlan_alloc_shared_memory());
 	memset(vlan_shm, 0, sizeof(*vlan_shm));
-	for (i = 0; i < OFP_NUM_VLAN_MAX; i++) {
-		vlan_shm->vlan_ifnet[i].next = (i == OFP_NUM_VLAN_MAX - 1) ?
+	for (i = 0; i < global_param->num_vlan; i++) {
+		vlan_shm->vlan_ifnet[i].next = (i == global_param->num_vlan - 1) ?
 			NULL : &(vlan_shm->vlan_ifnet[i+1]);
 	}
 	vlan_shm->free_ifnet_list = &(vlan_shm->vlan_ifnet[0]);

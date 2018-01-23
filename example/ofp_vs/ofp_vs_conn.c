@@ -426,7 +426,8 @@ static inline void del_timer(struct ofp_vs_timer *timer)
 void ip_vs_conn_put(struct ip_vs_conn *cp)
 {
         unsigned long timeout = cp->timeout;
-        uint64_t ticks = ofp_timer_ticks(0);
+        //uint64_t ticks = ofp_timer_ticks(0);
+        uint64_t ticks = RTE_PER_LCORE(ofp_vs_ticks);
 
         /*
         if (cp->flags & IP_VS_CONN_F_ONE_PACKET)
@@ -1607,7 +1608,7 @@ static void ip_vs_conn_max_init(void)
         pr_info("conn size:%d, phymem size: %lu\n", conn_size, physmem_size);
 
         /* 1/4 memory for ip_vs_conn */
-        sysctl_ip_vs_conn_max_num = (physmem_size >> 1) / conn_size;
+        sysctl_ip_vs_conn_max_num = (physmem_size >> 2) / conn_size;
 
         /* the average length of hash chain must be less than 4 */
         conn_tab_limit = (IP_VS_CONN_TAB_SIZE << 2) * ofp_vs_worker_count();

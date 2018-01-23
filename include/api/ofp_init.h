@@ -23,6 +23,7 @@
 #ifndef __OFP_INIT_H__
 #define __OFP_INIT_H__
 
+#include <odp_api.h>
 #include "ofp_hook.h"
 
 #if __GNUC__ >= 4
@@ -56,6 +57,31 @@ typedef struct ofp_global_param_t {
 	char **if_names;
 
 	/**
+	 * Packet input mode of the interfaces initialized by OFP.
+	 * Must be ODP_PKTIN_MODE_SCHED if default_event_dispatcher()
+	 * is used.
+	 *
+	 * Default value is ODP_PKTIN_MODE_SCHED.
+	 */
+	odp_pktin_mode_t pktin_mode;
+
+	/**
+	 * Packet output mode of the interfaces initialized by OFP.
+	 *
+	 * Default value is ODP_PKTOUT_MODE_DIRECT.
+	 */
+	odp_pktout_mode_t pktout_mode;
+
+	/**
+	 * Scheduler synchronization method of the pktin queues of the
+	 * interfaces initialized by OFP in the scheduled mode.
+	 * Ignored when pktin_mode is not ODP_PKTIN_MODE_SCHED.
+	 *
+	 * Default value is ODP_SCHED_SYNC_ATOMIC.
+	 */
+	odp_schedule_sync_t sched_sync;
+
+	/**
 	 * ODP event scheduling group for all scheduled event queues
 	 * (pktio queues, timer queues and other queues) created in
 	 * OFP initialization. The default value is
@@ -72,13 +98,6 @@ typedef struct ofp_global_param_t {
 	ofp_pkt_hook pkt_hook[OFP_HOOK_MAX];
 
 	/**
-	 * Use direct input mode for all interfaces if set. Otherwise
-	 * use scheduled input mode. Default value is 0
-	 * (i.e. scheduled mode).
-	 */
-	uint8_t burst_recv_mode;
-
-	/**
 	 * Create netlink listener thread. If slow path is enabled,
 	 * then default is TRUE, otherwise default is FALSE.
 	 */
@@ -88,8 +107,34 @@ typedef struct ofp_global_param_t {
 	 * Global ARP parameters.
 	 */
 	struct arp_s {
-		/** Entry timeout in seconds. Default is ARP_ENTRY_TIMEOUT. */
+		/** Maximum number of ARP entries. Default is OFP_ARP_ENTRIES. */
+		int entries;
+
+		/** ARP hash bits. Default is OFP_ARP_HASH_BITS. */
+		int hash_bits;
+
+		/** Entry timeout in seconds. Default is OFP_ARP_ENTRY_TIMEOUT. */
 		int entry_timeout;
+
+		/**
+		 * Timeout (in seconds) for a packet waiting for ARP
+		 * to complete. Default is OFP_ARP_SAVED_PKT_TIMEOUT.
+		 */
+		int saved_pkt_timeout;
+
+		/**
+		 * Reply to an ARP request only if the target address of the
+		 * request is an address of the receiving interface.
+		 * Ignore the request otherwise.
+		 *
+		 * If not set, reply to an ARP request for any local IP
+		 * address regardless of the receiving interface.
+		 *
+		 * See net.ipv4.conf.all.arp_ignore sysctl in Linux.
+		 *
+		 * Default value is 0.
+		 */
+		odp_bool_t check_interface;
 	} arp;
 
 	/**
@@ -120,6 +165,26 @@ typedef struct ofp_global_param_t {
 		 */
 		unsigned long buffer_size;
 	} pkt_pool;
+
+	/**
+	 * Maximum number of VLANs. Default is OFP_NUM_VLAN.
+	 */
+	int num_vlan;
+
+	/**
+	 * IPv4 route mtrie parameters.
+	 */
+	struct mtrie_s {
+		/** Number of routes. Default is OFP_ROUTES. */
+		int routes;
+		/** Number of 8 bit mtrie nodes. Default is OFP_MTRIE_TABLE8_NODES. */
+		int table8_nodes;
+	} mtrie;
+
+	/**
+	 * Maximum number of VRFs. Default is OFP_NUM_VRF.
+	 */
+	int num_vrf;
 } ofp_global_param_t;
 
 /**
@@ -133,11 +198,69 @@ typedef struct ofp_global_param_t {
  * compatible with future versions of OFP that may add new fields in
  * the parameter structure.
  *
- * @params parameter structure to initialize
+ * If libconfig is enabled, a configuration file may be used. The
+ * configuration file location may be set using the environment
+ * variable OFP_CONF_FILE. If the environment variable is not set, the
+ * file is read from $(sysconfdir)/ofp.conf, normally
+ * /usr/local/etc/ofp.conf.
+ *
+ * The file uses libconfig format. See
+ * http://www.hyperrealm.com/libconfig/libconfig_manual.html#Configuration-File-Grammar
+ *
+ * <pre>
+ * ofp_global_param: {
+ *     if_names = [ string, string, ... ]
+ *     linux_core_id = integer
+ *     pktin_mode = "direct" | "sched" | "queue" | "disabled"
+ *     pktout_mode = "direct" | "queue" | "tm" | "disabled"
+ *     sched_sync = "parallel" | "atomic" | ordered"
+ *     sched_group = "all | "worker" | "control"
+ *     enable_nl_thread = boolean
+ *     arp: {
+ *         entries = integer
+ *         hash_bits = integer
+ *         entry_timeout = integer
+ *         saved_pkt_timeout = integer
+ *         check_interface = boolean
+ *     }
+ *     evt_rx_burst_size = integer
+ *     pkt_tx_burst_size = integer
+ *     pcb_tcp_max = integer
+ *     pkt_pool: {
+ *         nb_pkts = integer
+ *         buffer_size = integer
+ *     }
+ *     num_vlan = integer
+ *     mtrie: {
+ *         routes = integer
+ *         table8_nodes = integer
+ *     }
+ *     num_vrf = integer
+ * }
+ * </pre>
+ *
+ * @param params structure to initialize
  *
  * @see ofp_init_global()
  */
 void ofp_init_global_param(ofp_global_param_t *params);
+
+/**
+ * Initialize ofp_global_param_t according to a configuration file.
+ *
+ * This function is similar to ofp_init_global_param(), but allows the
+ * caller to specify the location of the configuration file. Calling
+ * this function with filename = NULL has the same effect as calling
+ * ofp_init_global_param(). Passing a zero-length string as filename
+ * means that no configuration file will be used, not even the default
+ * or the file specified by the environment variable.
+ *
+ * @see ofp_init_global_param()
+ *
+ * @param params structure to initialize
+ * @param filename name of the configuration file
+ */
+void ofp_init_global_param_from_file(ofp_global_param_t *params, const char *filename);
 
 /**
  * OFP global initialization
@@ -145,6 +268,7 @@ void ofp_init_global_param(ofp_global_param_t *params);
  * This function must be called once in an ODP control thread before calling any
  * other OFP API functions.
  *
+ * @param instance ODP instance
  * @param params Structure with parameters for global init of OFP API
  *
  * @retval 0 on success

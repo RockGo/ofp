@@ -28,7 +28,9 @@ int ofp_pktio_open(struct ofp_ifnet *ifnet, odp_pktio_param_t *pktio_param)
 }
 
 void ofp_pktin_queue_param_init(odp_pktin_queue_param_t *param,
-		odp_pktin_mode_t in_mode, odp_schedule_group_t sched_group)
+				odp_pktin_mode_t in_mode,
+				odp_schedule_sync_t sched_sync,
+				odp_schedule_group_t sched_group)
 {
 	odp_queue_param_t *queue_param;
 
@@ -43,7 +45,7 @@ void ofp_pktin_queue_param_init(odp_pktin_queue_param_t *param,
 		queue_param->deq_mode = ODP_QUEUE_OP_MT;
 		queue_param->context = NULL;
 		queue_param->sched.prio = ODP_SCHED_PRIO_DEFAULT;
-		queue_param->sched.sync = ODP_SCHED_SYNC_ATOMIC;
+		queue_param->sched.sync = sched_sync;
 		queue_param->sched.group = sched_group;
 	} else if (in_mode == ODP_PKTIN_MODE_QUEUE) {
 		queue_param->type = ODP_QUEUE_TYPE_PLAIN;
@@ -56,12 +58,6 @@ void ofp_pktin_queue_param_init(odp_pktin_queue_param_t *param,
 static int ofp_pktin_queue_config(struct ofp_ifnet *ifnet,
 	odp_pktin_queue_param_t *pktin_param)
 {
-	if (OFP_PKTIN_QUEUE_MAX < pktin_param->num_queues) {
-		OFP_ERR("Number of input queues too big. Max: %d",
-			OFP_PKTIN_QUEUE_MAX);
-		return -1;
-	}
-
 	if (odp_pktin_queue_config(ifnet->pktio, pktin_param) < 0) {
 		OFP_ERR("Failed to create input queues.");
 		return -1;
@@ -102,7 +98,7 @@ int ofp_loopq_create(struct ofp_ifnet *ifnet)
 	char q_name[ODP_QUEUE_NAME_LEN];
 
 	/* Create loop queue */
-	snprintf(q_name, sizeof(q_name), "%s_loopq_def",
+	snprintf(q_name, sizeof(q_name), "%.20s_loopq_def",
 			ifnet->if_name);
 	q_name[ODP_QUEUE_NAME_LEN - 1] = '\0';
 
@@ -183,7 +179,7 @@ int ofp_sp_inq_create(struct ofp_ifnet *ifnet)
 	qparam.sched.sync  = ODP_SCHED_SYNC_ATOMIC;
 	qparam.sched.group = ODP_SCHED_GROUP_ALL;
 
-	snprintf(q_name, sizeof(q_name), "%s_inq_def", ifnet->if_name);
+	snprintf(q_name, sizeof(q_name), "%.20s_inq_def", ifnet->if_name);
 	q_name[ODP_QUEUE_NAME_LEN - 1] = '\0';
 
 	ifnet->spq_def = odp_queue_create(q_name, &qparam);
@@ -259,7 +255,9 @@ int ofp_ifnet_create2(odp_instance_t instance,
 	if (!pktin_param) {
 		pktin_param = &pktin_param_local;
 		ofp_pktin_queue_param_init(&pktin_param_local,
-			pktio_param->in_mode, ODP_SCHED_GROUP_ALL);
+					   pktio_param->in_mode,
+					   ODP_SCHED_SYNC_ATOMIC,
+					   ODP_SCHED_GROUP_ALL);
 	}
 
 	HANDLE_ERROR(ofp_pktin_queue_config(ifnet, pktin_param));
@@ -328,6 +326,8 @@ int ofp_ifnet_create2(odp_instance_t instance,
 			return -1;
 		}
 	}
+
+	odp_pktio_stats_reset(ifnet->pktio);
 
 #ifdef SP
 	/* Start VIF slowpath receiver thread */

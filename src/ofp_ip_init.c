@@ -29,7 +29,7 @@
  *	@(#)ip_input.c	8.2 (Berkeley) 1/4/94
  */
 
-#include <odp.h>
+#include <odp_api.h>
 #include "api/ofp_types.h"
 #include "ofpi_in.h"
 #include "ofpi_ip_var.h"
@@ -69,7 +69,7 @@ void	ofp_ip_destroy(void)
 }
 #endif
 
-enum ofp_return_code ofp_ip_input(odp_packet_t pkt, int off)
+enum ofp_return_code ofp_ip_input(odp_packet_t *pkt, int off)
 {
 	(void)pkt;
 	(void)off;

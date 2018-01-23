@@ -23,7 +23,7 @@ typedef struct {
 	int core_count;
 	int if_count;		/**< Number of interfaces to be used */
 	char **if_names;	/**< Array of pointers to interface names */
-	char *conf_file;
+	char *cli_file;
 } appl_args_t;
 
 /**
@@ -205,7 +205,7 @@ __attribute__((constructor)) static void ofp_netwrap_main_ctor(void)
 	 */
 	if (ofp_start_cli_thread(netwrap_proc_instance,
 		app_init_params.linux_core_id,
-		params.conf_file) < 0) {
+		params.cli_file) < 0) {
 		OFP_ERR("Error: Failed to init CLI thread");
 		ofp_netwrap_main_dtor();
 		return;
@@ -228,22 +228,23 @@ static void ofp_netwrap_main_dtor(void)
 	 * resources allocated by odp_init_global().
 	 */
 		odph_linux_pthread_join(thread_tbl, num_workers);
-
+		/* fall through */
 	case NETWRAP_OFP_INIT_LOCAL:
 		if (ofp_term_local() < 0)
 			printf("Error: ofp_term_local failed\n");
-
+		/* fall through */
 	case NETWRAP_OFP_INIT_GLOBAL:
 		if (ofp_term_global() < 0)
 			printf("Error: ofp_term_global failed\n");
-
+		/* fall through */
 	case NETWRAP_ODP_INIT_LOCAL:
 		if (odp_term_local() < 0)
 			printf("Error: odp_term_local failed\n");
-
+		/* fall through */
 	case NETWRAP_ODP_INIT_GLOBAL:
 		if (odp_term_global(netwrap_proc_instance) < 0)
 			printf("Error: odp_term_global failed\n");
+		/* fall through */
 	case NETWRAP_UNINT:
 		;
 	};
@@ -267,7 +268,7 @@ static int parse_args(int argc, char *argv[], appl_args_t *appl_args)
 		{"count", required_argument, NULL, 'c'},
 		{"interface", required_argument, NULL, 'i'},	/* return 'i' */
 		{"help", no_argument, NULL, 'h'},		/* return 'h' */
-		{"configuration file", required_argument,
+		{"cli-file", required_argument,
 			NULL, 'f'},/* return 'f' */
 		{NULL, 0, NULL, 0}
 	};
@@ -340,13 +341,13 @@ static int parse_args(int argc, char *argv[], appl_args_t *appl_args)
 			}
 			len += 1;	/* add room for '\0' */
 
-			appl_args->conf_file = malloc(len);
-			if (appl_args->conf_file == NULL) {
+			appl_args->cli_file = malloc(len);
+			if (appl_args->cli_file == NULL) {
 				usage(argv[0]);
 				return EXIT_FAILURE;
 			}
 
-			strcpy(appl_args->conf_file, optarg);
+			strcpy(appl_args->cli_file, optarg);
 			break;
 
 		default:

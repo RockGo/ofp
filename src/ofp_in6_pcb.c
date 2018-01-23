@@ -64,7 +64,7 @@
  *	@(#)in_pcb.c	8.2 (Berkeley) 1/4/94
  */
 
-#include <odp.h>
+#include <odp_api.h>
 #include "ofpi_in.h"
 #include "ofpi_in_pcb.h"
 #include "ofpi_in6_pcb.h"
@@ -257,7 +257,7 @@ ofp_in6_pcbbind(register struct inpcb *inp, struct ofp_sockaddr *nam,
 					    ((t->inp_flags &
 					      INP_TIMEWAIT) == 0) &&
 					    (so->so_type != SOCK_STREAM ||
-					     ntohl(t->inp_faddr.s_addr) ==
+					     odp_be_to_cpu_32(t->inp_faddr.s_addr) ==
 					      INADDR_ANY) &&
 					    (inp->inp_cred->cr_uid !=
 					     t->inp_cred->cr_uid))

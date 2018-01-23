@@ -85,8 +85,7 @@ int socket(int domain, int type, int protocol)
 				break;
 			case IPPROTO_TCP:
 				ofp_protocol = OFP_IPPROTO_TCP;
-			case 0:
-				ofp_protocol = protocol;
+				break;
 			default:
 				ofp_protocol = protocol;
 			}
@@ -217,7 +216,7 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
 	/*printf("Binding socket '%d' to the address '%x:%d' returns:%d\n",
 		sockfd,	((const struct sockaddr_in *)addr)->sin_addr.s_addr,
-		ntohs(((const struct sockaddr_in *)addr)->sin_port),
+		odp_be_to_cpu_16(((const struct sockaddr_in *)addr)->sin_port),
 		bind_value);*/
 	return bind_value;
 }

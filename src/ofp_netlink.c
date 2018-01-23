@@ -31,7 +31,7 @@
 
 #undef HZ
 
-#include "odp.h"
+#include <odp_api.h>
 #include "ofpi_avl.h"
 #include "ofpi_portconf.h"
 #include "ofpi_rt_lookup.h"
@@ -492,6 +492,11 @@ static int add_link(struct ifinfomsg *ifinfo_entry, int vlan, int link,
 			(void **)&dev)) {
 
 			dev = ofp_vlan_alloc();
+			if(!dev) {
+				OFP_ERR(" ! Interface allocation failed for VLAN: %d", vlan);
+				return -1;
+			}
+
 			memset(dev, 0, sizeof(struct ofp_ifnet));
 			dev->port = dev_root->port;
 			dev->vlan = vlan;
@@ -509,9 +514,6 @@ static int add_link(struct ifinfomsg *ifinfo_entry, int vlan, int link,
 		/* Update linux index in case dev was created by portconf */
 		/* when linux interface index was not available yet (cli) */
 		if (!dev->linux_index) {
-			dev->linux_index = ifinfo_entry->ifi_index;
-			ofp_update_ifindex_lookup_tab(dev);
-		} else if (dev->linux_index == 0) {
 			dev->linux_index = ifinfo_entry->ifi_index;
 			ofp_update_ifindex_lookup_tab(dev);
 		}
@@ -917,7 +919,7 @@ extern int clone (int (*__fn) (void *__arg), void *__child_stack,
                   int __flags, void *__arg, ...) __THROW;
 
 #define STACK_SIZE (128 * 1024)
-static char child_stack[STACK_SIZE];    /* Space for child's stack */
+static char child_stack[STACK_SIZE] ODP_ALIGNED_CACHE;
 
 
 static int open_nl_socket(int vrf)

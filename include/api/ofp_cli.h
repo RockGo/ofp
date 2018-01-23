@@ -8,16 +8,24 @@
 #ifndef __OFP_CLI_H__
 #define __OFP_CLI_H__
 
-#include <odp.h>
+#include <odp_api.h>
 
 #if __GNUC__ >= 4
 #pragma GCC visibility push(default)
 #endif
 
-/** CLI Start thread
- */
-int ofp_start_cli_thread(odp_instance_t instance, int core_id,
-	char *conf_file);
+/**
+ * Start CLI server thread.
+ *
+ * Called by Application code to start the CLI server if needed.
+ *
+ * @param instance The ODP instance to use.
+ * @param core_id The core on which the CLI server thread is started.
+ * @param cli_file Name of the CLI file to process.
+ * @retval 0 on success
+ * @retval -1 on failure
+ */                                                                                                                                                                                                                                                                                                                         int ofp_start_cli_thread(odp_instance_t instance, int core_id,
+	char *cli_file);
 int ofp_stop_cli_thread(void);
 
 /**

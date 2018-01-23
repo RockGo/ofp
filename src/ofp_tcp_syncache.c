@@ -35,7 +35,7 @@
 #include <strings.h>
 #include <limits.h>
 
-#include "odp.h"
+#include <odp_api.h>
 
 #include "ofpi_util.h"
 #include "ofpi_errno.h"
@@ -70,8 +70,6 @@
 #include "ofpi_tcp_shm.h"
 
 extern int ofp_max_linkhdr;
-
-#define log(_a, _b...) OFP_DBG(_b)
 
 #define	SYSCTL_VNET_INT OFP_SYSCTL_INT
 #define	SYSCTL_VNET_UINT OFP_SYSCTL_UINT

@@ -11,7 +11,7 @@
 /**
  * @file
  *
- * @brief Configuration file for OFP
+ * @brief Configuration defaults for OFP
  *
  */
 
@@ -58,13 +58,7 @@
 
 /* Configure values */
 /** Packet pool size. */
-#if defined(OFP_CONFIG_WEBSERVER) || \
-	defined(OFP_CONFIG_NETWRAP_WEBSERVER) || \
-	defined(OFP_PLAT_ODP_DPDK)
 # define SHM_PKT_POOL_NB_PKTS		10240
-#else /*OFP_CONFIG_DEFAULT*/
-# define SHM_PKT_POOL_NB_PKTS		512
-#endif /* OFP_CONFIGS */
 
 /** Packet pool buffer size. */
 #define SHM_PKT_POOL_BUFFER_SIZE	1856
@@ -110,16 +104,14 @@
  * For each fastpath interface a PKTIO in opened by OFP.*/
 #define OFP_FP_INTERFACE_MAX 8
 
-/* Maximum numbers of VLANs */
-#define OFP_NUM_VLAN_MAX 256
-
-/**Maximum number of input queues that can be configured for an
-   * OFP interface*/
-#define OFP_PKTIN_QUEUE_MAX 64
+/* Maximum number of VLANs. */
+#define OFP_NUM_VLAN 256
 
 /**Maximum number of output queues that can be configured for an
  * OFP interface*/
 #define OFP_PKTOUT_QUEUE_MAX 64
+
+#define OFP_PKTIN_QUEUE_MAX 64 
 
 /**Maximum number of events received at once in scheduling mode
  * in default_event_dispatcher().*/
@@ -128,45 +120,31 @@
 /**Number of packets sent at once (>= 1)   */
 #define OFP_PKT_TX_BURST_SIZE 1
 
-#ifdef MTRIE
 /**Controls memory size for IPv4 MTRIE 16/8/8 data structure.
- * It defines the number of large tables (16) used to store routes.
- * MTRIE should be defined*/
-#define ROUTE4_MTRIE16_TABLE_NODES 8
-/**Controls memory size for IPv4 MTRIE 16/8/8 data structure.
- * It defines the number of small tables (8) used to store routes.
- * MTRIE should be defined*/
-#define ROUTE4_MTRIE8_TABLE_NODES 128
+ * It defines the number of small tables (8) used to store routes.*/
+#define OFP_MTRIE_TABLE8_NODES 128
 /** Defines the maximum number of routes that are stored in the MTRIE.*/
-#define ROUTE4_RULE_LIST_SIZE 65536
-#define VRF_ROUTES ROUTE4_RULE_LIST_SIZE
-#else
+#define OFP_ROUTES 65536
+
+/** Number of VRFs. */
+#define OFP_NUM_VRF 1
+
 /**Controls memory size for IPv4 radix tree data structure.
- * It defines the number of radix tree nodes used to store routes.
- * MTRIE feature should not be defined*/
+ * It defines the number of radix tree nodes used to store routes.*/
 #define ROUTE4_NODES 65536
-#define VRF_ROUTES ROUTE4_NODES
-#endif
 
 /**Controls memory size for IPv6 radix tree data structure.
  * It defines the number of radix tree nodes used to store routes.*/
 #define ROUTE6_NODES 65536
 
-/**Arp entry table size. Controls memory size for arp entries.
- * Must be power of two */
-#define ARP_ENTRY_TABLE_SIZE 2048
-/**Total number of arp entries that can be stored. */
-#define ARP_ENTRIES_SIZE (NUM_SETS * 4)
-/**Default ARP age interval (in seconds). If set to 0, then age interval is half of ARP_ENTRY_TIMEOUT. */
-#define ARP_AGE_INTERVAL 0
-/**Default ARP entry timeout (in seconds) */
-#define ARP_ENTRY_TIMEOUT 1200
-/**Timer trigger(s) to scan for old arp entries.*/
-#define ARP_ENTRY_UPD_TIMEOUT 2
+/**ARP hash bits. */
+#define OFP_ARP_HASH_BITS 11
+/**Total number of ARP entries that can be stored. */
+#define OFP_ARP_ENTRIES 128
+/**Default ARP entry timeout (in seconds). */
+#define OFP_ARP_ENTRY_TIMEOUT 1200
 /**Time interval(s) while a packet is saved and waiting for an ARP reply. */
-#define ARP_SAVED_PKT_TIMEOUT 10
-/**Maximum number of saved packets waiting for an ARP reply. */
-#define ARP_WAITING_PKTS_SIZE 2048
+#define OFP_ARP_SAVED_PKT_TIMEOUT 10
 
 /**Enable IPv4 UDP checksum validation mechanism on input
  * packets. If enabled, validation is performed on input

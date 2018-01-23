@@ -1,19 +1,5 @@
 DEFAULT_INCLUDES=-I.
 
-AM_CFLAGS += -DINET
-
-if OFP_IPv6
-AM_CFLAGS += -DINET6
-endif
-
-if OFP_SP
-AM_CFLAGS +=  -DSP
-endif
-
-if OFP_MTRIE
-AM_CFLAGS +=  -DMTRIE
-endif
-
 AM_CPPFLAGS += -I$(top_srcdir)/include -I$(top_srcdir)/include/api
 AM_LDFLAGS += -L$(top_builddir)/lib
 

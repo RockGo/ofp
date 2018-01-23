@@ -35,7 +35,7 @@
 #ifndef _SYS_PROTOSW_H_
 #define _SYS_PROTOSW_H_
 
-#include "odp.h"
+#include <odp_api.h>
 #include "ofpi_domain.h"
 
 /* Forward declare these structures referenced from prototypes below. */
@@ -69,7 +69,7 @@ struct sockopt;
  * similar to the vnode VOP interface.
  */
 /* USE THESE FOR YOUR PROTOTYPES ! */
-typedef enum ofp_return_code	pr_input_t (odp_packet_t , int);
+typedef enum ofp_return_code	pr_input_t (odp_packet_t *, int);
 typedef int	pr_output_t (odp_packet_t , struct socket *);
 typedef void	pr_ctlinput_t (int, struct ofp_sockaddr *, void *);
 typedef int	pr_ctloutput_t (struct socket *, struct sockopt *);

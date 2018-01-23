@@ -961,7 +961,7 @@ tcp_state_transition(struct ip_vs_conn *cp, int direction,
         struct iphdr *iph = ip_hdr(skb);
         struct tcphdr *th = tcp_hdr(iph);
 
-        if (th == NULL)
+        if (unlikely(th == NULL))
                 return 0;
 
         //spin_lock(&cp->lock);

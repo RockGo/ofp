@@ -288,7 +288,6 @@ stdreply:	icmpelen = max(8, min(V_icmp_quotelen, ip_in->ip_len - ip_hlen));
 
 	ip->ip_len = odp_cpu_to_be_16(icmp_len);
 	ip->ip_v = OFP_IPVERSION;
-	ip->ip_hl = 5;
 	ip->ip_p = OFP_IPPROTO_ICMP;
 	ip->ip_tos = 0;
 
@@ -303,16 +302,16 @@ freeit:
  * Process a received ICMP message.
  */
 enum ofp_return_code
-ofp_icmp_input(odp_packet_t pkt, int off)
+ofp_icmp_input(odp_packet_t *pkt, int off)
 {
-	struct ofp_ip *ip = (struct ofp_ip *)odp_packet_l3_ptr(pkt, NULL);
+	struct ofp_ip *ip = (struct ofp_ip *)odp_packet_l3_ptr(*pkt, NULL);
 	struct ofp_icmp *icp = (struct ofp_icmp *)((uint8_t *)ip + off);
 	const int icmplen = odp_be_to_cpu_16(ip->ip_len);
 
-	if (ofp_cksum(pkt, odp_packet_l3_offset(pkt) + off, icmplen - (ip->ip_hl << 2)))
+	if (ofp_cksum(*pkt, odp_packet_l3_offset(*pkt) + off, icmplen - (ip->ip_hl << 2)))
 		return OFP_PKT_DROP;
 
-	return _ofp_icmp_input(pkt, ip, icp, icmp_reflect);
+	return _ofp_icmp_input(*pkt, ip, icp, icmp_reflect);
 }
 
 static enum ofp_return_code
@@ -526,9 +525,6 @@ _ofp_icmp_input(odp_packet_t pkt, struct ofp_ip *ip, struct ofp_icmp *icp,
 	/*
 	 * Message type specific processing.
 	 */
-	if (icp->icmp_type > OFP_ICMP_MAXTYPE)
-		return OFP_PKT_DROP;
-
 /*TODO ICMP stats
 	ICMPSTAT_INC(icps_inhist[icp->icmp_type]);*/
 	switch (icp->icmp_type) {
@@ -557,26 +553,14 @@ _ofp_icmp_input(odp_packet_t pkt, struct ofp_ip *ip, struct ofp_icmp *icp,
 	case OFP_ICMP_REDIRECT:
 		return icmp_shorter_route(ip, icp);
 
-	/*
-	 * No kernel processing for the following;
-	 * just fall through to send to raw listener.
-	 */
-	case OFP_ICMP_ECHOREPLY:
-		return OFP_PKT_CONTINUE;
-	case OFP_ICMP_ROUTERADVERT:
-	case OFP_ICMP_ROUTERSOLICIT:
-	case OFP_ICMP_TSTAMPREPLY:
-	case OFP_ICMP_IREQREPLY:
-	case OFP_ICMP_MASKREPLY:
 	default:
 		break;
 	}
 
-/*TODO pas to ip raw listener. What processing is done in raw listener?
-	rip_input(m, off);
-	return;
-*/
-	return OFP_PKT_DROP;
+	/*
+	 * Anything we didn't process is forwarded to slow path.
+	 */
+	return OFP_PKT_CONTINUE;
 }
 
 /*
@@ -589,10 +573,11 @@ icmp_reflect(odp_packet_t pkt)
 	struct ofp_in_addr t;
 	struct ofp_nh_entry *nh = NULL;
 	struct ofp_ifnet *dev_out, *ifp = odp_packet_user_ptr(pkt);
+	int optlen = (ip->ip_hl << 2) - sizeof(*ip);
 
-/*	if (IN_MULTICAST(ntohl(ip->ip_src.s_addr)) ||
-	    IN_EXPERIMENTAL(ntohl(ip->ip_src.s_addr)) ||
-	    IN_ZERONET(ntohl(ip->ip_src.s_addr)) ) {
+/*	if (IN_MULTICAST(odp_be_to_cpu_32(ip->ip_src.s_addr)) ||
+	    IN_EXPERIMENTAL(odp_be_to_cpu_32(ip->ip_src.s_addr)) ||
+	    IN_ZERONET(odp_be_to_cpu_32(ip->ip_src.s_addr)) ) {
 		MPSTAT_INC(icps_badaddr);
 		goto done;
 * Ip_output() will check for broadcast
@@ -671,8 +656,8 @@ match:
 	ip->ip_src = t;
 	ip->ip_ttl = 64; /*default ttl, from RFC 1340*/
 
-/*TODO IP header optlen handling
 	if (optlen > 0) {
+		/*TODO Uncomment and adapt this code once option processing has been implemented.
 		register u_char *cp;
 		int opt, cnt;
 		u_int len;
@@ -737,8 +722,28 @@ match:
 		optlen += sizeof(struct ip);
 		bcopy((caddr_t)ip + optlen, (caddr_t)(ip + 1),
 			 (unsigned)(m->m_len - sizeof(struct ip)));
+		*/
+
+		/*
+		 * Since we don't have IP option processing (yet),
+		 * it's best to just remove all options.
+		 */
+		uint32_t optpos = odp_packet_l3_offset(pkt) + sizeof(struct ofp_ip);
+
+		/* Move packet data back, overwriting IP options. */
+		if (odp_packet_move_data(pkt, optpos, optpos + optlen,
+					 odp_packet_len(pkt) - (optpos + optlen)))
+			goto drop;
+		if (!odp_packet_pull_tail(pkt, optlen))
+			goto drop;
+
+		ip->ip_v = OFP_IPVERSION;
+		ip->ip_hl = 5;
+		uint16_t ip_len = odp_be_to_cpu_16(ip->ip_len);
+		ip_len -= optlen;
+		ip->ip_len = odp_cpu_to_be_16(ip_len);
 	}
-*/
+
 	icmp_send(pkt, nh/*, opts*/);
 	return OFP_PKT_PROCESSED;
 drop:

@@ -11,7 +11,7 @@
 #include <string.h>
 #include <inttypes.h>
 
-#include "odp.h"
+#include <odp_api.h>
 
 #include "ofpi_config.h"
 #include "ofpi_portconf.h"
@@ -22,11 +22,23 @@
 #include "ofpi_util.h"
 
 #define SHM_NAME_ARP "OfpArpShMem"
+#define SIZEOF_ENTRIES (sizeof(struct arp_entry) * NUM_ARPS)
+#define SIZEOF_SETS (sizeof(struct set_s) * NUM_SETS)
+#define SHM_SIZE_ARP (sizeof(struct ofp_arp_mem) + \
+		      SIZEOF_ENTRIES + SIZEOF_SETS)
 
-#define NUM_SETS ARP_ENTRY_TABLE_SIZE
-#define NUM_ARPS ARP_ENTRIES_SIZE
+/* Default ARP age interval (in seconds). If set to 0, then age interval is half of OFP_ARP_ENTRY_TIMEOUT. */
+#define ARP_AGE_INTERVAL 0
+/* Timer interval for entry use time update. */
+#define ARP_ENTRY_UPD_TIMEOUT 2
+/* Maximum number of saved packets waiting for an ARP reply. */
+#define ARP_WAITING_PKTS_SIZE 2048
+
+#define NUM_SETS (1<<global_param->arp.hash_bits)
+/* Plus one because zeroth entry is used as the invalid entry. */
+#define NUM_ARPS (global_param->arp.entries + 1)
 #define ENTRY_UPD_TIMEOUT (ARP_ENTRY_UPD_TIMEOUT * US_PER_SEC)
-#define SAVED_PKT_TIMEOUT (ARP_SAVED_PKT_TIMEOUT * US_PER_SEC)
+#define SAVED_PKT_TIMEOUT (global_param->arp.saved_pkt_timeout * US_PER_SEC)
 #define AGE_DIVISOR 2
 
 #if (ODP_BYTE_ORDER == ODP_LITTLE_ENDIAN)
@@ -39,17 +51,22 @@
  * Data
  */
 
-struct arp_entry_list {
-	struct arp_entry *slh_first;
-}; /* OFP_SLIST_HEAD */
+struct arp_entry_tailq {
+	struct arp_entry *stqh_first;
+	struct arp_entry **stqh_last;
+}; /* OFP_STAILQ_HEAD */
+
+struct set_s {
+	struct arp_entry_tailq table;
+	struct arp_cache cache;
+	odp_rwlock_t table_rwlock;
+} ODP_ALIGNED_CACHE;
 
 struct _arp {
-	struct arp_entry entries[NUM_ARPS] ODP_ALIGNED_CACHE;
-	struct arp_entry_list free_entries;
-	struct arp_entry_list table[NUM_SETS] ODP_ALIGNED_CACHE;
-	struct arp_cache cache[NUM_SETS] ODP_ALIGNED_CACHE;
-	odp_rwlock_t table_rwlock[NUM_SETS];
+	struct arp_entry *entries;
+	struct arp_entry_tailq free_entries;
 	odp_rwlock_t fr_ent_rwlock;
+	struct set_s *set;
 };
 
 struct _pkt {
@@ -98,10 +115,10 @@ static inline void *entry_alloc(void)
 
 	odp_rwlock_write_lock(&shm->arp.fr_ent_rwlock);
 
-	entry = OFP_SLIST_FIRST(&shm->arp.free_entries);
+	entry = OFP_STAILQ_FIRST(&shm->arp.free_entries);
 
 	if (entry)
-		OFP_SLIST_REMOVE_HEAD(&shm->arp.free_entries, next);
+		OFP_STAILQ_REMOVE_HEAD(&shm->arp.free_entries, next);
 
 	odp_rwlock_write_unlock(&shm->arp.fr_ent_rwlock);
 
@@ -114,7 +131,9 @@ static inline void entry_free(struct arp_entry *entry)
 	entry->pkt_tmo = ODP_TIMER_INVALID;
 
 	odp_rwlock_write_lock(&shm->arp.fr_ent_rwlock);
-	OFP_SLIST_INSERT_HEAD(&shm->arp.free_entries, entry, next);
+	/* Inserting freed entry to tail of the list so a freed entry */
+	/* is not reused soon, as other worker threads may have reference */
+	OFP_STAILQ_INSERT_TAIL(&shm->arp.free_entries, entry, next);
 	odp_rwlock_write_unlock(&shm->arp.fr_ent_rwlock);
 }
 
@@ -122,7 +141,7 @@ static inline struct arp_entry *arp_lookup(int set, struct arp_key *key)
 {
 	struct arp_entry *new;
 
-	OFP_SLIST_FOREACH(new, &shm->arp.table[set], next) {
+	OFP_STAILQ_FOREACH(new, &shm->arp.set[set].table, next) {
 		if (odp_likely((new->key.ipv4_addr == key->ipv4_addr) &&
 			       (new->key.vrf == key->vrf)))
 			return new;
@@ -146,7 +165,7 @@ static inline void *insert_new_entry(int set, struct arp_key *key)
 		new->key.ipv4_addr = key->ipv4_addr;
 		new->key.vrf = key->vrf;
 		new->usetime_upd_tmo = ODP_TIMER_INVALID;
-		OFP_SLIST_INSERT_HEAD(&shm->arp.table[set], new, next);
+		OFP_STAILQ_INSERT_HEAD(&shm->arp.set[set].table, new, next);
 	}
 
 	return new;
@@ -155,16 +174,19 @@ static inline void *insert_new_entry(int set, struct arp_key *key)
 static inline int remove_entry(int set, struct arp_entry *entry)
 {
 	struct arp_cache *cache;
+	struct arp_entry *cache_entry;
 	int rc = 0;
 
-	/* remove from set */
-	OFP_SLIST_REMOVE(&shm->arp.table[set], entry, arp_entry, next);
-
 	/* remove from set's cache */
-	cache = &shm->arp.cache[set];
+	cache = &shm->arp.set[set].cache;
 
-	if (ARP_IN_CACHE(cache, &entry->key))
+	cache_entry = ARP_GET_CACHE(cache);
+
+	if (ARP_IS_CACHE_HIT(cache_entry, &entry->key))
 		ARP_DEL_CACHE(cache);
+
+	/* remove from set */
+	OFP_STAILQ_REMOVE(&shm->arp.set[set].table, entry, arp_entry, next);
 
 	/* kill update timer*/
 	odp_rwlock_write_lock(&entry->usetime_rwlock);
@@ -185,7 +207,7 @@ static inline void show_arp_entry(int fd, struct arp_entry *entry)
 {
 	odp_time_t t, time_diff;
 
-	t = odp_time_local();
+	t = odp_time_global();
 	time_diff = odp_time_diff(t, entry->usetime);
 	ofp_sendf(fd, "%3d  %-15s %-17s %4u\r\n",
 		    entry->key.vrf,
@@ -236,17 +258,17 @@ int ofp_arp_ipv4_insert(uint32_t ipv4_addr, unsigned char *ll_addr,
 
 	set = set_key_and_hash(dev->vrf, ipv4_addr, &key);
 
-	odp_rwlock_write_lock(&shm->arp.table_rwlock[set]);
+	odp_rwlock_write_lock(&shm->arp.set[set].table_rwlock);
 
 	new = insert_new_entry(set, &key);
 
 	if (new == NULL) {
-		odp_rwlock_write_unlock(&shm->arp.table_rwlock[set]);
+		odp_rwlock_write_unlock(&shm->arp.set[set].table_rwlock);
 		return -1;
 	}
 
 	memcpy(&new->macaddr, ll_addr, OFP_ETHER_ADDR_LEN);
-	tnow = odp_time_local();
+	tnow = odp_time_global();
 	new->usetime = tnow;
 
 	OFP_SLIST_SWAP(&send_list, &new->pkt_list_head, pkt_entry);
@@ -256,7 +278,7 @@ int ofp_arp_ipv4_insert(uint32_t ipv4_addr, unsigned char *ll_addr,
 		new->pkt_tmo = ODP_TIMER_INVALID;
 	}
 
-	odp_rwlock_write_unlock(&shm->arp.table_rwlock[set]);
+	odp_rwlock_write_unlock(&shm->arp.set[set].table_rwlock);
 
 	/* Send queued packets */
 	pktentry = OFP_SLIST_FIRST(&send_list);
@@ -265,7 +287,7 @@ int ofp_arp_ipv4_insert(uint32_t ipv4_addr, unsigned char *ll_addr,
 			odp_packet_to_u64(pktentry->pkt),
 			ofp_print_ip_addr(ipv4_addr));
 
-		if (ofp_ip_output(pktentry->pkt, pktentry->nh) == OFP_PKT_DROP)
+		if (ofp_ip_output_common(pktentry->pkt, pktentry->nh, 0) == OFP_PKT_DROP)
 			odp_packet_free(pktentry->pkt);
 
 		OFP_SLIST_REMOVE_HEAD(&send_list, next);
@@ -287,7 +309,7 @@ int ofp_arp_ipv4_remove(uint32_t ipv4_addr, struct ofp_ifnet *dev)
 
 	set = set_key_and_hash(dev->vrf, ipv4_addr, &key);
 
-	odp_rwlock_write_lock(&shm->arp.table_rwlock[set]);
+	odp_rwlock_write_lock(&shm->arp.set[set].table_rwlock);
 	entry = arp_lookup(set, &key);
 
 	if (odp_likely(entry != NULL)) {
@@ -299,7 +321,7 @@ int ofp_arp_ipv4_remove(uint32_t ipv4_addr, struct ofp_ifnet *dev)
 		remove_entry(set, entry);
 		ret = 0;
 	}
-	odp_rwlock_write_unlock(&shm->arp.table_rwlock[set]);
+	odp_rwlock_write_unlock(&shm->arp.set[set].table_rwlock);
 
 	return ret;
 }
@@ -332,24 +354,24 @@ int ofp_ipv4_lookup_mac(uint32_t ipv4_addr, unsigned char *ll_addr,
 
 	set = set_key_and_hash(dev->vrf, ipv4_addr, &key);
 
-	cache = &shm->arp.cache[set];
+	cache = &shm->arp.set[set].cache;
 
-	if (ARP_IN_CACHE(cache, &key))
-		entry = ARP_GET_CACHE(cache);
-	else {
-		odp_rwlock_write_lock(&shm->arp.table_rwlock[set]);
+	entry = ARP_GET_CACHE(cache);
+
+	if (!ARP_IS_CACHE_HIT(entry, &key)) {
+		odp_rwlock_write_lock(&shm->arp.set[set].table_rwlock);
 
 		entry = arp_lookup(set, &key);
 
 		if (odp_unlikely(entry == NULL) ||
 			OFP_SLIST_FIRST(&entry->pkt_list_head)) {
-			odp_rwlock_write_unlock(&shm->arp.table_rwlock[set]);
+			odp_rwlock_write_unlock(&shm->arp.set[set].table_rwlock);
 			return -1;
 		}
 
-		ARP_SET_CACHE(cache, &key, entry);
+		ARP_SET_CACHE(cache, entry);
 
-		odp_rwlock_write_unlock(&shm->arp.table_rwlock[set]);
+		odp_rwlock_write_unlock(&shm->arp.set[set].table_rwlock);
 	}
 
 	ofp_copy_mac(ll_addr, &entry->macaddr);
@@ -357,7 +379,7 @@ int ofp_ipv4_lookup_mac(uint32_t ipv4_addr, unsigned char *ll_addr,
 	if (odp_unlikely(entry->usetime_upd_tmo == ODP_TIMER_INVALID)) {
 		odp_rwlock_write_lock(&entry->usetime_rwlock);
 		if (entry->usetime_upd_tmo == ODP_TIMER_INVALID) {
-			tnew = odp_time_local();
+			tnew = odp_time_global();
 			entry->usetime = tnew;
 
 			entry_idx = entry - &shm->arp.entries[0];
@@ -402,18 +424,17 @@ enum ofp_return_code ofp_arp_save_ipv4_pkt(odp_packet_t pkt, struct ofp_nh_entry
 
 	set = set_key_and_hash(dev->vrf, ipv4_addr, &key);
 
-	odp_rwlock_write_lock(&shm->arp.table_rwlock[set]);
+	odp_rwlock_write_lock(&shm->arp.set[set].table_rwlock);
 
 #if (ARP_SANITY_CHECK)
 	newarp = arp_lookup(set, &key);
-	if (newarp != NULL &&
-		*((uint8_t *)&newarp->macaddr + OFP_ETHER_ADDR_LEN) != 0)
+	if (newarp && newarp->macaddr)
 		OFP_ERR("ARP Entry failed the sanity check!");
 #endif
 
 	newarp = insert_new_entry(set, &key);
 	if (newarp == NULL) {
-		odp_rwlock_write_unlock(&shm->arp.table_rwlock[set]);
+		odp_rwlock_write_unlock(&shm->arp.set[set].table_rwlock);
 		OFP_ERR("ARP entry alloc failed, %" PRIX64 " to %s",
 			  odp_packet_to_u64(pkt),
 			  ofp_print_ip_addr(ipv4_addr));
@@ -428,7 +449,7 @@ enum ofp_return_code ofp_arp_save_ipv4_pkt(odp_packet_t pkt, struct ofp_nh_entry
 			  ofp_print_ip_addr(ipv4_addr));
 		if (OFP_SLIST_FIRST(&newarp->pkt_list_head) == NULL)
 			remove_entry(set, newarp);
-		odp_rwlock_write_unlock(&shm->arp.table_rwlock[set]);
+		odp_rwlock_write_unlock(&shm->arp.set[set].table_rwlock);
 		return OFP_PKT_DROP;
 	}
 	newpkt->pkt = pkt;
@@ -445,7 +466,7 @@ enum ofp_return_code ofp_arp_save_ipv4_pkt(odp_packet_t pkt, struct ofp_nh_entry
 
 	OFP_SLIST_INSERT_HEAD(&newarp->pkt_list_head, newpkt, next);
 
-	odp_rwlock_write_unlock(&shm->arp.table_rwlock[set]);
+	odp_rwlock_write_unlock(&shm->arp.set[set].table_rwlock);
 
 	return OFP_PKT_PROCESSED;
 }
@@ -474,21 +495,21 @@ void ofp_arp_age_cb(void *arg)
 	odp_time_t now;
 
 	cli =  *(int *)arg;
-	now = odp_time_local();
+	now = odp_time_global();
 
 	for (i = 0; i < NUM_SETS; ++i) {
-		odp_rwlock_write_lock(&shm->arp.table_rwlock[i]);
+		odp_rwlock_write_lock(&shm->arp.set[i].table_rwlock);
 
-		entry = OFP_SLIST_FIRST(&shm->arp.table[i]);
+		entry = OFP_STAILQ_FIRST(&shm->arp.set[i].table);
 		while (entry) {
-			next_entry = OFP_SLIST_NEXT(entry, next);
+			next_entry = OFP_STAILQ_NEXT(entry, next);
 			if (OFP_SLIST_FIRST(&entry->pkt_list_head) == NULL &&
 					ofp_arp_entry_is_timeout(entry, now))
 				ofp_arp_entry_cleanup_on_tmo(i, entry);
 			entry = next_entry;
 		}
 
-		odp_rwlock_write_unlock(&shm->arp.table_rwlock[i]);
+		odp_rwlock_write_unlock(&shm->arp.set[i].table_rwlock);
 	}
 
 	if (!cli) {
@@ -537,7 +558,7 @@ int ofp_arp_init_tables(void)
 	int rc = 0;
 
 	for (i = 0; i < NUM_SETS; ++i)
-		odp_rwlock_write_lock(&shm->arp.table_rwlock[i]);
+		odp_rwlock_write_lock(&shm->arp.set[i].table_rwlock);
 	odp_rwlock_write_lock(&shm->arp.fr_ent_rwlock);
 	odp_rwlock_write_lock(&shm->pkt.fr_ent_rwlock);
 
@@ -565,15 +586,18 @@ int ofp_arp_init_tables(void)
 				sizeof(shm->arp.entries[i].pkt_list_head));
 	}
 
-	memset(shm->arp.table, 0, sizeof(shm->arp.table));
-	memset(shm->arp.cache, 0, sizeof(shm->arp.cache));
+	for (i = 0; i < NUM_SETS; ++i) {
+		memset(&shm->arp.set[i].table, 0, sizeof(shm->arp.set[i].table));
+		memset(&shm->arp.set[i].cache, 0, sizeof(shm->arp.set[i].cache));
+	}
+
 	memset(shm->pkt.entries, 0, sizeof(shm->pkt.entries));
 
-	OFP_SLIST_INIT(&shm->arp.free_entries);
+	OFP_STAILQ_INIT(&shm->arp.free_entries);
 	OFP_SLIST_INIT(&shm->pkt.free_entries);
 
 	for (i = NUM_ARPS - 1; i >= 0; --i)
-		OFP_SLIST_INSERT_HEAD(&shm->arp.free_entries, &shm->arp.entries[i],
+		OFP_STAILQ_INSERT_TAIL(&shm->arp.free_entries, &shm->arp.entries[i],
 				  next);
 
 	for (i = ARP_WAITING_PKTS_SIZE - 1; i >= 0; --i)
@@ -581,7 +605,7 @@ int ofp_arp_init_tables(void)
 				  next);
 
 	for (i = 0; i < NUM_SETS; ++i)
-		odp_rwlock_write_unlock(&shm->arp.table_rwlock[i]);
+		odp_rwlock_write_unlock(&shm->arp.set[i].table_rwlock);
 
 	odp_rwlock_write_unlock(&shm->pkt.fr_ent_rwlock);
 	odp_rwlock_write_unlock(&shm->arp.fr_ent_rwlock);
@@ -591,7 +615,7 @@ int ofp_arp_init_tables(void)
 
 static int ofp_arp_alloc_shared_memory(void)
 {
-	shm = ofp_shared_memory_alloc(SHM_NAME_ARP, sizeof(*shm));
+	shm = ofp_shared_memory_alloc(SHM_NAME_ARP, SHM_SIZE_ARP);
 	if (shm == NULL) {
 		OFP_ERR("ofp_shared_memory_alloc failed");
 		return -1;
@@ -613,21 +637,25 @@ static int ofp_arp_free_shared_memory(void)
 
 void ofp_arp_init_prepare(void)
 {
-	ofp_shared_memory_prealloc(SHM_NAME_ARP, sizeof(*shm));
+	ofp_shared_memory_prealloc(SHM_NAME_ARP, SHM_SIZE_ARP);
 }
 
-int ofp_arp_init_global(int age_interval, int entry_timeout)
+int ofp_arp_init_global(void)
 {
 	int i;
 	int cli = 0;
+	int age_interval = ARP_AGE_INTERVAL;
+	int entry_timeout = global_param->arp.entry_timeout;
 
 	HANDLE_ERROR(ofp_arp_alloc_shared_memory());
 
-	memset(shm, 0, sizeof(*shm));
+	memset(shm, 0, SHM_SIZE_ARP);
 	shm->age_timer = ODP_TIMER_INVALID;
+	shm->arp.entries = (struct arp_entry *)((char *)shm + sizeof(*shm));
+	shm->arp.set = (struct set_s *)((char *)shm->arp.entries + SIZEOF_ENTRIES);
 
 	for (i = 0; i < NUM_SETS; ++i)
-		odp_rwlock_init(&shm->arp.table_rwlock[i]);
+		odp_rwlock_init(&shm->arp.set[i].table_rwlock);
 	odp_rwlock_init(&shm->arp.fr_ent_rwlock);
 	odp_rwlock_init(&shm->pkt.fr_ent_rwlock);
 
@@ -650,7 +678,7 @@ int ofp_arp_init_global(int age_interval, int entry_timeout)
 		age_interval = entry_timeout;
 	}
 	shm->entry_timeout =
-		odp_time_local_from_ns(entry_timeout * NS_PER_SEC);
+		odp_time_global_from_ns(entry_timeout * NS_PER_SEC);
 	shm->age_interval = age_interval;
 	shm->age_timer = ofp_timer_start(
 		shm->age_interval * US_PER_SEC, ofp_arp_age_cb, &cli, sizeof(cli));
@@ -676,10 +704,10 @@ int ofp_arp_term_global(void)
 		CHECK_ERROR(ofp_timer_cancel(shm->age_timer), rc);
 
 	for (i = 0; i < NUM_SETS; i++) {
-		entry = OFP_SLIST_FIRST(&shm->arp.table[i]);
+		entry = OFP_STAILQ_FIRST(&shm->arp.set[i].table);
 
 		while (entry) {
-			next_entry = OFP_SLIST_NEXT(entry, next);
+			next_entry = OFP_STAILQ_NEXT(entry, next);
 
 			if (entry->pkt_tmo != ODP_TIMER_INVALID)
 				CHECK_ERROR(ofp_timer_cancel(entry->pkt_tmo),

@@ -20,7 +20,7 @@
 #include <CUnit/Basic.h>
 #endif
 
-#include <odp.h>
+#include <odp_api.h>
 #include <ofpi.h>
 #include <ofpi_log.h>
 #include <ofpi_portconf.h>
@@ -69,6 +69,7 @@ init_suite(void)
 
 	ofp_init_global_param(&params);
 	params.enable_nl_thread = 0;
+	params.num_vrf = 3;
 	(void) ofp_init_global(instance, &params);
 
 	ofp_arp_init_local();
