@@ -152,7 +152,7 @@ static void *event_dispatcher(void *arg)
 
 		ofp_send_pending_pkt();
 
-		if (((loop_cnt++)&4096) == 0) {
+		if (((loop_cnt++)&4095) == 0) {
 			/* dpdk timer schedule */
 			rte_timer_manage();
 		}
