@@ -426,7 +426,8 @@ static inline void del_timer(struct ofp_vs_timer *timer)
 void ip_vs_conn_put(struct ip_vs_conn *cp)
 {
         unsigned long timeout = cp->timeout;
-        uint64_t ticks = ofp_timer_ticks(0);
+        //uint64_t ticks = ofp_timer_ticks(0);
+        uint64_t ticks = RTE_PER_LCORE(ofp_vs_ticks);
 
         /*
         if (cp->flags & IP_VS_CONN_F_ONE_PACKET)

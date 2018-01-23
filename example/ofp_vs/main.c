@@ -101,7 +101,6 @@ static void direct_recv(const appl_args_t *appl_params)
 	int i;
 	int port;
 	int cpu = odp_cpu_id();
-	ofp_pkt_processing_func pkt_func = ofp_eth_vlan_processing;
 
 	for (port = 0; port < appl_params->if_count; port++) {
 		int pkts;
@@ -112,19 +111,19 @@ static void direct_recv(const appl_args_t *appl_params)
 			
 		pkts = odp_pktin_recv(in_queue, pkt_tbl,
 				      OFP_PKT_RX_BURST_SIZE);
-		if (odp_unlikely(pkts) <= 0)
+		if (unlikely(pkts) <= 0)
 			continue;
 
 		for (i = 0; i < pkts; i++) {
 			odp_packet_t pkt = pkt_tbl[i];
 #if 0
-			if (odp_unlikely(odp_packet_has_error(pkt))) {
+			if (unlikely(odp_packet_has_error(pkt))) {
 				OFP_DBG("Dropping packet with error");
 				odp_packet_free(pkt);
 				continue;
 			}
 #endif	
-			ofp_packet_input(pkt, ODP_QUEUE_INVALID, pkt_func);
+			ofp_packet_input(pkt, ODP_QUEUE_INVALID, ofp_eth_vlan_processing);
 		}
 	}
 }
@@ -148,12 +147,12 @@ static void *event_dispatcher(void *arg)
 	}
 
 	/* PER CORE DISPATCHER */
-	while (odp_likely(*is_running)) {
+	while (likely(*is_running)) {
 		direct_recv(appl_params);
 
 		ofp_send_pending_pkt();
 
-		if ((loop_cnt++)%1024) {
+		if (((loop_cnt++)&4096) == 0) {
 			/* dpdk timer schedule */
 			rte_timer_manage();
 		}

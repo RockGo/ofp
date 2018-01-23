@@ -286,7 +286,7 @@ enum ofp_return_code ofp_vs_in(odp_packet_t pkt, void *arg)
 					sizeof(struct ether_hdr));
 
 	tot_len = rte_be_to_cpu_16(iphdr->tot_len);
-	if (tot_len > skb->data_len || tot_len < ip_hdrlen(iphdr)) {
+	if (unlikely(tot_len > skb->data_len || tot_len < ip_hdrlen(iphdr))) {
 		return NF_DROP;
 	}
 
@@ -334,7 +334,7 @@ enum ofp_return_code ofp_vs_in(odp_packet_t pkt, void *arg)
 	IP_VS_DBG_PKT(11, pp, skb, 0, "Incoming packet");
 
 	/* Check the server status */
-	if (cp->dest && !(cp->dest->flags & IP_VS_DEST_F_AVAILABLE)) {
+	if (unlikely(cp->dest && !(cp->dest->flags & IP_VS_DEST_F_AVAILABLE))) {
 		/* the destination server is not available */
 
 		if (sysctl_ip_vs_expire_nodest_conn) {
@@ -379,7 +379,7 @@ enum ofp_return_code ofp_vs_in(odp_packet_t pkt, void *arg)
 	*/
 
 	ip_vs_set_state(cp, IP_VS_DIR_INPUT, skb, pp);
-	if (cp->packet_xmit)
+	if (likely(cp->packet_xmit != NULL))
 		ret = cp->packet_xmit(skb, cp, pp);
 	/* do not touch skb anymore */
 	else {

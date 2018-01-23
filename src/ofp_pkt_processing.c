@@ -1084,8 +1084,12 @@ enum ofp_return_code ofp_ip_output_common(odp_packet_t pkt,
 	if ((ret = ofp_ip_output_find_route(pkt, &odata)) != OFP_PKT_CONTINUE)
 		return ret;
 
-	if (is_local_out)
-		ofp_ip_id_assign(odata.ip);
+	if (is_local_out) {
+        /*
+         * Affect the performance for SNAT output
+         */
+		//ofp_ip_id_assign(odata.ip);
+    }
 
 	/* Fragmentation */
 	if (odp_be_to_cpu_16(odata.ip->ip_len) > odata.dev_out->if_mtu) {

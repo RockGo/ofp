@@ -28,6 +28,9 @@
 #include "kern_list.h"
 #include "net/ip_vs.h"
 
+
+RTE_DECLARE_PER_LCORE(volatile uint64_t, ofp_vs_ticks);
+
 extern odp_cpumask_t ofp_vs_worker_cpumask;
 unsigned int ofp_vs_worker_count(void);
 
