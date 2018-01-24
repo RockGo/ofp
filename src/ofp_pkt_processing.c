@@ -1085,11 +1085,11 @@ enum ofp_return_code ofp_ip_output_common(odp_packet_t pkt,
 		return ret;
 
 	if (is_local_out) {
-        /*
-         * Affect the performance for SNAT output
-         */
+                /*
+                 * Affect the performance for SNAT output
+                 */
 		//ofp_ip_id_assign(odata.ip);
-    }
+        }
 
 	/* Fragmentation */
 	if (odp_be_to_cpu_16(odata.ip->ip_len) > odata.dev_out->if_mtu) {
