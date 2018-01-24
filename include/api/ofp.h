@@ -7,12 +7,15 @@
 #ifndef __OFP_H__
 #define __OFP_H__
 
-//#include <odp.h>
-//#include <odp/helper/threads.h>
-//#include <odp/helper/linux/pthread.h>
-
+#include <odp.h>
+#if ((ODP_VERSION_API_GENERATION == 1) && (ODP_VERSION_API_MAJOR <= 14))
+#include <odp/helper/threads.h>
+#include <odp/helper/linux/pthread.h>
+#include <odp/helper/linux/process.h>
+#else
 #include <odp_api.h>
 #include <odp/helper/linux.h>
+#endif
 
 /**
  * @file

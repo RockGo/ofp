@@ -10,10 +10,13 @@
 
 #include <stdint.h>
 
-//#include "odp.h"
-//#include "odp/helper/threads.h"
+#include "odp.h"
+#if ((ODP_VERSION_API_GENERATION == 1) && (ODP_VERSION_API_MAJOR <= 14))
+#include "odp/helper/threads.h"
+#else
 #include <odp_api.h>
 #include "odp/helper/linux.h"
+#endif
 
 #include "api/ofp_portconf.h"
 #include "api/ofp_socket.h"
