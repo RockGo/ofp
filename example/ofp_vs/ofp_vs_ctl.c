@@ -1716,9 +1716,9 @@ static int ip_vs_genl_parse_service(struct ip_vs_service_user_kern *usvc,
                 nla_est_timeout = attrs[IPVS_SVC_ATTR_EST_TIMEOUT];
 
                 if (!(nla_sched && nla_flags && nla_timeout && nla_netmask)) {
-            OFP_ERR("return EINVAL %s %s:%d\n", __func__, __FILE__, __LINE__);
+                        OFP_ERR("return EINVAL %s %s:%d\n", __func__, __FILE__, __LINE__);
                         return -EINVAL;
-          }
+                }
 
                 nla_memcpy(&flags, nla_flags, sizeof(flags));
 
@@ -1791,7 +1791,9 @@ static int ip_vs_genl_fill_stats(struct nl_msg *msg, int container_type,
         return 0;
 
 nla_put_failure:
+#if ((LIBNL_VER_NUM == LIBNL_VER(3, 2)) && (LIBNL_VER_MIC >= 24))
         nla_nest_cancel(msg, nl_stats);
+#endif
         return -EMSGSIZE;
 }
 
@@ -1846,7 +1848,9 @@ static int ip_vs_genl_fill_service(struct nl_msg *msg,
         return 0;
 
 nla_put_failure:
+#if ((LIBNL_VER_NUM == LIBNL_VER(3, 2)) && (LIBNL_VER_MIC >= 24))
         nla_nest_cancel(msg, nl_service);
+#endif
         return -EMSGSIZE;
 }
 
@@ -2003,7 +2007,9 @@ static int ip_vs_genl_fill_laddr(struct nl_msg *msg, struct ip_vs_laddr *laddr)
         return 0;
 
 nla_put_failure:
+#if ((LIBNL_VER_NUM == LIBNL_VER(3, 2)) && (LIBNL_VER_MIC >= 24))
         nla_nest_cancel(msg, nl_laddr);
+#endif
         return -EMSGSIZE;
 }
 
@@ -2157,7 +2163,9 @@ static int ip_vs_genl_fill_dest(struct nl_msg *msg, struct ip_vs_dest *dest)
         return 0;
 
 nla_put_failure:
+#if ((LIBNL_VER_NUM == LIBNL_VER(3, 2)) && (LIBNL_VER_MIC >= 24))
         nla_nest_cancel(msg, nl_dest);
+#endif
         return -EMSGSIZE;
 }
 
